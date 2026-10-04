@@ -151,20 +151,33 @@ const num=v=>typeof v==="number"?v:parseFloat(String(v??"0").replace(/\./g,"").r
 const br=(n,d=0)=>n.toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
 const norm=s=>(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toUpperCase();
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const url=(e,uf,c)=>`${BASE}/${e}/dados-simplificados/${uf}/${uf}-c${pad(c,4)}-e${pad(e,6)}-r.json`;
+const url=(e,uf,c)=>`${BASE}/${e}/dados/${uf}/${uf}-c${pad(c,4)}-e${pad(e,6)}-u.json`;
 const foto=(e,uf,c)=>c.sqcand?`${BASE}/${e}/fotos/${uf}/${c.sqcand}.jpeg`:"";
 const ini=nm=>esc((nm||"?").split(/\s+/).slice(0,2).map(w=>w[0]).join(""));
 const av=(src,nm)=>src?`<img src="${src}" alt="" loading="lazy" onerror="this.parentNode.textContent='${ini(nm)}'">`:ini(nm);
 const ordena=j=>(j.cand||[]).slice().sort((a,b)=>num(b.vap)-num(a.vap));
 const grupo=c=>(c.cc||c.par||"").trim();
 const grupoCurto=g=>{const s=g.split("(")[0].trim();return s||g};
-const siglaDe=c=>{const g=grupo(c);const m=g.match(/^([A-Z0-9 ]{2,12})(\s*-|$)/);return m?m[1].trim():grupoCurto(g)};
+const siglaDe=c=>{if(c.sg)return c.sg;const g=grupo(c);const m=g.match(/^([A-Z0-9 ]{2,12})(\s*-|$)/);return m?m[1].trim():grupoCurto(g)};
 const pstOf=j=>num(j.pst??j.psec??j.pesi??0);
 
 async function get(e,uf,c){
   const r=await fetch(url(e,uf,c)+"?t="+Date.now(),{cache:"no-store"});
   if(!r.ok)throw new Error(`HTTP ${r.status} em ${uf.toUpperCase()} cargo ${c}`);
-  return r.json();
+  return achata(await r.json());
+}
+// Formato 2026 (-u.json): carg[] > agr[] (federação) > par[] (partido) > cand[]
+function achata(j){
+  if(Array.isArray(j.cand))return j;
+  const cand=[];const cg=(j.carg||[])[0]||{};
+  for(const a of cg.agr||[]){
+    const fed=(a.par||[]).length>1&&a.nm;
+    for(const p of a.par||[])for(const c of p.cand||[]){
+      const sg=p.sg||p.nm||"";
+      cand.push({...c,nm:c.nmu||c.nm,sg,cc:fed?a.nm:sg});
+    }
+  }
+  return{cand,pst:j.s?.pst??j.pst,hg:j.hg??j.ht,vv:j.v?.vv??j.vv};
 }
 
 // ===== Projeção proporcional (estimativa) =====
