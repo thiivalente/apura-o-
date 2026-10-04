@@ -148,7 +148,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 
   <section class="sec" id="municipios"><div class="sh"><h2>Votos por município</h2><span class="ap num" id="ap-mun"></span></div>
     <div class="seg"><button type="button" class="est" id="b-7" aria-pressed="true">Guilherme · Estadual</button><button type="button" class="fed" id="b-6" aria-pressed="false">Eduardo · Federal</button></div>
-    <div class="tools"><input id="q" type="search" placeholder="Buscar município" autocomplete="off"><select id="ord"><option value="v">Mais votos</option><option value="p">% no município</option><option value="a">Mais apurado</option><option value="n">Nome (A–Z)</option></select></div>
+    <div class="tools"><input id="q" type="search" placeholder="Digite o município (ex.: For)" autocomplete="off"><select id="ord"><option value="v">Mais votos</option><option value="p">% no município</option><option value="a">Mais apurado</option><option value="n">Nome (A–Z)</option></select></div>
     <div class="sum num" id="sum-mun"></div>
     <button type="button" class="more" id="go-mun">Carregar votos por município</button>
     <div class="list" id="l-mun"></div>
@@ -452,14 +452,20 @@ function renderMun(){
   const cargo=MUN.cargo,d=MUN.dados[cargo],tot=MUN.lista?MUN.lista.length:184;
   const q=norm($("q").value.trim()),ord=$("ord").value;
   let rows=Object.values(d);
-  if(!rows.length){$("sum-mun").innerHTML="";$("l-mun").innerHTML="";return}
+  // Com busca: mostra todos os municípios do CE cujo nome contém o texto, carregados ou não
+  if(q&&MUN.lista){
+    const achados=MUN.lista.filter(m=>norm(m.nm).includes(q));
+    const vistos=new Set(rows.map(r=>r.nm));
+    for(const m of achados)if(!vistos.has(m.nm))rows.push({nm:m.nm,v:0,p:0,pos:null,tot:0,ap:0,pend:true});
+  }
+  if(!rows.length){$("sum-mun").innerHTML="";$("l-mun").innerHTML=q?'<div class="msg">Nenhum município encontrado.</div>':"";return}
   const votos=rows.reduce((a,r)=>a+r.v,0),com=rows.filter(r=>r.v>0).length;
   const apMed=rows.reduce((a,r)=>a+r.ap,0)/rows.length;
   $("ap-mun").textContent=`${br(apMed,2)}% apurado (média)`;
   $("sum-mun").innerHTML=`<span><b>${br(votos)}</b> votos somados</span><span>votado em <b>${com}</b> de ${tot} municípios</span>${MUN.carregando?`<span>atualizando…</span>`:""}`;
   if(q)rows=rows.filter(r=>norm(r.nm).includes(q));
   rows.sort({v:(a,b)=>b.v-a.v,p:(a,b)=>b.p-a.p,a:(a,b)=>b.ap-a.ap,n:(a,b)=>a.nm.localeCompare(b.nm,"pt-BR")}[$("ord").value]);
-  $("l-mun").innerHTML=rows.slice(0,MUN.vis).map(r=>`<div class="mu"><div class="mn">${esc(r.nm)}</div><div class="mv num">${br(r.v)}</div>
+  $("l-mun").innerHTML=rows.slice(0,MUN.vis).map(r=>`<div class="mu"><div class="mn">${esc(r.nm)}</div><div class="mv num">${r.pend?'<small class="md">buscando…</small>':br(r.v)}</div>
     <div class="md num">${br(r.p,2)}% dos válidos${r.pos?` · ${r.pos}º de ${r.tot}`:""}</div><div class="mp num">${br(r.ap,2)}% apurado</div>
     <div class="mb"><i style="width:${Math.min(100,r.ap)}%"></i></div></div>`).join("")
     +(rows.length>MUN.vis?`<button type="button" class="more" id="mais">Ver mais ${rows.length-MUN.vis} municípios</button>`:"")
@@ -469,9 +475,36 @@ function renderMun(){
 for(const c of [6,7])$("b-"+c).addEventListener("click",()=>{
   MUN.cargo=c;MUN.vis=60;
   $("b-6").setAttribute("aria-pressed",c===6);$("b-7").setAttribute("aria-pressed",c===7);
-  renderMun();if(MUN.ativo)atualizaMun();
+  renderMun();if(MUN.ativo)atualizaMun();else if($("q").value.trim().length>=2)buscaMun();
 });
-$("q").addEventListener("input",renderMun);
+// Busca: filtra na hora com o que já está salvo e, após uma pausa na digitação,
+// baixa só os municípios encontrados que ainda não têm dados (máx. 12 por busca).
+let tBusca=0;
+$("q").addEventListener("input",()=>{
+  municipios().then(renderMun).catch(()=>renderMun());
+  clearTimeout(tBusca);
+  tBusca=setTimeout(buscaMun,500);
+});
+async function buscaMun(){
+  const q=norm($("q").value.trim());
+  if(q.length<2)return;
+  const cargo=MUN.cargo;
+  let lista;try{lista=await municipios()}catch(e){return}
+  const alvo=lista.filter(m=>norm(m.nm).includes(q)).slice(0,12);
+  if(!AB.mun){try{AB.mun=lerAb(await tse(abUrl(E_EST,"ce"),true))}catch(e){}}
+  const falta=alvo.filter(m=>{
+    const a=andamentoMun(m),d=MUN.dados[cargo][m.cd];
+    if(a)return a.st>0?a.st!==MUN.seen[cargo][m.cd]:!d;
+    return !d;
+  });
+  await Promise.all(falta.map(m=>{
+    const a=andamentoMun(m);
+    if(a&&a.st===0){MUN.dados[cargo][m.cd]={nm:m.nm,v:0,p:0,pos:null,tot:0,ap:0};return}
+    return lerMun(cargo,m).then(()=>{if(a)MUN.seen[cargo][m.cd]=a.st}).catch(()=>{}).then(renderMun);
+  }));
+  LSset("mun-v2",{dados:MUN.dados,seen:MUN.seen});
+  renderMun();
+}
 $("ord").addEventListener("change",renderMun);
 $("go-mun").addEventListener("click",()=>{MUN.ativo=true;$("go-mun").hidden=true;atualizaMun()});
 renderMun();
