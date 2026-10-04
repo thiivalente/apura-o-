@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>Previsão · Dep. Federal CE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&display=swap">
+<style>
+:root{
+  --bg:#0b1220; --card:#161e2e; --card2:#1c2638; --line:#26324a; --fg:#f1f5f9; --muted:#94a3b8;
+  --orange:#f97316; --orange2:#ff5f00; --amber:#f59e0b; --yellow:#facc15;
+  --c0:#facc15; --c1:#38bdf8; --c2:#f472b6; --c3:#4ade80; --c4:#a78bfa;
+  --f:"Archivo",system-ui,sans-serif; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
+  padding:max(12px,env(safe-area-inset-top)) 12px max(28px,env(safe-area-inset-bottom))}
+.wrap{max-width:800px;margin:0 auto;display:grid;gap:12px}
+.num{font-variant-numeric:tabular-nums}
+.hdr{background:linear-gradient(120deg,var(--amber),var(--orange) 55%,var(--orange2));border-radius:18px;padding:16px;display:grid;gap:12px;color:#fff}
+.hrow{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.hdr h1{margin:0;font:900 24px/1 var(--f)}
+.hdr .sub{font-size:13px;opacity:.9;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,.28);border-radius:99px;padding:5px 10px;font:700 13px var(--f);white-space:nowrap}
+.chip .y{color:var(--yellow)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--yellow)}
+.dot.live{background:#4ade80;animation:pulse 1.6s infinite}
+.dot.err{background:#ef4444}
+@keyframes pulse{50%{opacity:.3}}
+.prog{height:6px;border-radius:3px;background:rgba(0,0,0,.25);overflow:hidden}
+.prog i{display:block;height:100%;background:#fff;width:0;transition:width .8s}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs a{background:rgba(80,30,0,.35);color:#fff;text-decoration:none;font:700 13px var(--f);padding:7px 12px;border-radius:99px}
+.tabs a[aria-current]{background:#fff;color:var(--orange2)}
+
+.sec{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;gap:10px}
+.sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sh h2{margin:0;font:900 17px var(--f);text-transform:uppercase}
+.sh .ap{color:var(--orange);font:700 13px var(--f)}
+.msg{color:var(--muted);font-size:13px}
+.log{font:600 11px var(--f);color:var(--muted)}
+
+.cands{display:flex;gap:6px;flex-wrap:wrap}
+.cand{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:6px 6px 6px 12px;font:800 12px var(--f);text-transform:uppercase;background:var(--card2);border:1px solid var(--line)}
+.cand i{width:10px;height:10px;border-radius:50%}
+.cand button{border:0;background:transparent;color:var(--muted);font:900 14px var(--f);padding:0 4px;cursor:pointer}
+.add{display:flex;gap:6px}
+.add input,.tools input,.tools select{flex:1 1 140px;min-width:0;font:600 14px var(--f);padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--fg)}
+.add button,.btn{font:800 13px var(--f);padding:9px 14px;border-radius:10px;border:0;background:var(--orange);color:#fff}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+
+/* Resultado previsto */
+.pv{display:grid;gap:12px}
+.pr{display:grid;gap:5px}
+.pr .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.pr .nm{font:900 15px var(--f);text-transform:uppercase;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr .big{font:900 22px var(--f);white-space:nowrap}
+.pr .big small{font:700 12px var(--f);color:var(--muted)}
+.track{position:relative;height:18px;border-radius:6px;background:var(--card2);overflow:hidden}
+.track .now{position:absolute;inset:0 auto 0 0;border-radius:6px 0 0 6px}
+.track .proj{position:absolute;top:0;bottom:0;opacity:.35}
+.track .band{position:absolute;top:7px;height:4px;background:#fff;opacity:.85;border-radius:2px}
+.pr .meta{display:flex;gap:4px 12px;flex-wrap:wrap;font:600 12px var(--f);color:var(--muted)}
+.pr .meta b{color:var(--fg)}
+.legend{display:flex;gap:6px 14px;flex-wrap:wrap;font:600 12px var(--f);color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
+
+.chart svg{display:block;width:100%;height:auto}
+.chart text{font-family:var(--f);font-size:11px;fill:var(--muted)}
+
+/* Regiões e municípios */
+.reg{display:grid;gap:6px}
+.rg{padding:9px 10px;border-radius:10px;background:var(--card2);display:grid;gap:6px}
+.rg .t{display:flex;justify-content:space-between;gap:8px;font:800 13px var(--f);text-transform:uppercase}
+.rg .t span{color:var(--orange);font-weight:700;text-transform:none}
+.vals{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:4px 10px;font:600 12px var(--f);color:var(--muted)}
+.vals b{color:var(--fg);font-size:14px}
+.vals i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.more{font:800 13px var(--f);padding:10px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--orange)}
+.how{font-size:13px;color:var(--muted);display:grid;gap:6px}
+.how b{color:var(--fg)}
+.foot{color:var(--muted);font-size:12px;text-align:center;display:grid;gap:4px}
+.foot a{color:var(--orange)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hdr">
+    <div class="hrow">
+      <div><h1>PREVISÃO · DEP. FEDERAL</h1><div class="sub">Projeção pelos votos já apurados em cada município do Ceará</div></div>
+      <div class="chip"><span class="y" id="cd">atualizando…</span><span class="dot" id="dot"></span>TSE <b id="hg">--:--</b></div>
+    </div>
+    <div class="prog"><i id="progMun"></i></div>
+    <div class="chip num" id="carga" style="justify-self:start">Carregando municípios…</div>
+    <nav class="tabs"><a href="./">📋 Ceará</a><a href="./panorama.html">🇧🇷 Panorama nacional</a><a href="./previsao.html" aria-current="page">📈 Previsão</a></nav>
+  </header>
+
+  <section class="sec">
+    <div class="sh"><h2>Candidatos comparados</h2></div>
+    <div class="cands" id="cands"></div>
+    <div class="add"><input id="addq" list="lista-cand" placeholder="Adicionar candidato (nome ou número)" autocomplete="off"><button type="button" id="addb">Adicionar</button></div>
+    <datalist id="lista-cand"></datalist>
+    <div class="msg" id="avisoCand"></div>
+  </section>
+
+  <section class="sec">
+    <div class="sh"><h2>Previsão de votos finais</h2><span class="ap num" id="apMun"></span></div>
+    <div class="legend"><span><i style="background:var(--fg)"></i>já apurado</span><span><i style="background:var(--fg);opacity:.35"></i>previsto até o fim</span><span><i style="background:#fff;height:4px"></i>faixa provável</span></div>
+    <div class="pv" id="pv"><div class="msg">Aguardando dados dos municípios…</div></div>
+    <div class="log num" id="logPv"></div>
+  </section>
+
+  <section class="sec">
+    <div class="sh"><h2>Evolução da previsão</h2></div>
+    <div class="chart" id="hist"><div class="msg">O gráfico aparece a partir da segunda atualização.</div></div>
+  </section>
+
+  <section class="sec">
+    <div class="sh"><h2>Por região</h2><span class="ap" id="regFonte"></span></div>
+    <div class="reg" id="reg"></div>
+  </section>
+
+  <section class="sec">
+    <div class="sh"><h2>Por município</h2></div>
+    <div class="tools">
+      <input id="q" type="search" placeholder="Buscar município" autocomplete="off">
+      <select id="fr" aria-label="Filtrar região"><option value="">Todas as regiões</option></select>
+      <select id="ord" aria-label="Ordenar"><option value="f">Mais falta apurar</option><option value="v0">Mais votos do 1º candidato</option><option value="d">Maior diferença prevista</option><option value="n">Nome (A–Z)</option></select>
+    </div>
+    <div class="reg" id="mun"></div>
+  </section>
+
+  <section class="sec how">
+    <div class="sh"><h2>Como a previsão é feita</h2></div>
+    <div><b>Município já apurado em parte:</b> os votos do candidato são projetados para 100% do município, na proporção do eleitorado já apurado ali.</div>
+    <div><b>Município sem nenhuma seção apurada:</b> usa a porcentagem que o candidato teve na mesma região do IBGE (região imediata) e aplica ao total de votos esperado no município (eleitorado × comparecimento × votos válidos observados no estado).</div>
+    <div><b>Faixa provável:</b> compara a projeção por região com a projeção pela média do estado, e soma uma margem de 15% sobre os votos ainda não apurados. Quanto mais apurado, mais estreita a faixa.</div>
+    <div>É uma estimativa estatística, não um resultado. Votos de cada município vêm do TSE; as regiões vêm do IBGE.</div>
+  </section>
+
+  <div class="foot"><span id="pausa" hidden></span><span id="err"></span>
+    <span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">TSE</a> · regiões: <a href="https://servicodados.ibge.gov.br" target="_blank" rel="noopener">IBGE</a></span></div>
+</div>
+
+<script>
+// ===== Configuração =====
+const qs=new URLSearchParams(location.search);
+const BASE=(qs.get("base")||"https://resultados.tse.jus.br/oficial/ele2026").replace(/\/$/,"");
+const E=6259,CARGO=6,UF="ce";
+const PADRAO=["EDUARDO BISMARCK","LARISSA GASPAR","LUISA CELA"];
+const CORES=["var(--c0)","var(--c1)","var(--c2)","var(--c3)","var(--c4)"];
+const CICLO_MS=60000,LOTE_SEM_AB=20;
+
+// ===== Fila única de requisições (mesma da página principal) =====
+const Q={fila:[],ativos:0,MAX:2,GAP:400,ate:0,pausa:0,timer:0,frio:{}};
+let NREQ=0;
+function tse(u,prio){return new Promise((res,rej)=>{const it={u,res,rej};prio?Q.fila.unshift(it):Q.fila.push(it);bomba()})}
+function bomba(){
+  clearTimeout(Q.timer);
+  const agora=Date.now();
+  if(agora<Q.ate){Q.timer=setTimeout(bomba,Q.ate-agora);avisoPausa();return}
+  while(Q.ativos<Q.MAX&&Q.fila.length){
+    const it=Q.fila.shift();
+    if(Q.frio[it.u]>Date.now()){it.rej(new Error("HTTP 404"));continue}
+    Q.ativos++;NREQ++;
+    const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),20000);
+    fetch(it.u,{cache:"no-cache",signal:ctl.signal}).then(async r=>{
+      if(r.status===429||r.status===503){
+        const ra=+r.headers.get("Retry-After")||0;
+        Q.pausa=Math.min(600,Math.max(90,ra,Q.pausa*2||90));
+        Q.ate=Date.now()+Q.pausa*1000;Q.fila.unshift(it);return;
+      }
+      Q.pausa=0;
+      if(r.status===404)Q.frio[it.u]=Date.now()+300000;
+      if(!r.ok)return it.rej(new Error("HTTP "+r.status));
+      it.res(await r.json());
+    }).catch(e=>it.rej(e.name==="AbortError"?new Error("sem resposta em 20 s"):e)).finally(()=>{clearTimeout(to);Q.ativos--;Q.timer=setTimeout(bomba,Q.GAP)});
+    break;
+  }
+  if(Q.fila.length&&Q.ativos<Q.MAX)Q.timer=setTimeout(bomba,Q.GAP);
+  avisoPausa();
+}
+function avisoPausa(){
+  const el=$("pausa"),s=Math.ceil((Q.ate-Date.now())/1000);
+  el.hidden=!(s>0);if(s>0)el.textContent=`O TSE bloqueou temporariamente esta conexão por excesso de acessos. Mostrando os últimos dados salvos · nova tentativa em ${s} s.`;
+}
+setInterval(avisoPausa,1000);
+
+// ===== Utilidades =====
+const $=id=>document.getElementById(id);
+const pad=(n,l)=>String(n).padStart(l,"0");
+const num=v=>typeof v==="number"?v:parseFloat(String(v??"0").replace(/\./g,"").replace(",","."))||0;
+const br=(n,d=0)=>(+n||0).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const norm=s=>(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toUpperCase().trim();
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
+const LSset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const hora=t=>t?new Date(t).toLocaleTimeString("pt-BR"):"—";
+const urlCargo=ab=>`${BASE}/${E}/dados/${UF}/${ab}-c${pad(CARGO,4)}-e${pad(E,6)}-u.json`;
+const abUrl=`${BASE}/${E}/dados/${UF}/${UF}-e${pad(E,6)}-ab.json`;
+const cfgUrl=`${BASE}/${E}/config/mun-e${pad(E,6)}-cm.json`;
+
+// Lê um arquivo de resultado (formato 2026) guardando só o necessário
+function resumo(j){
+  const v={};const cg=(j.carg||[])[0]||{};
+  for(const a of cg.agr||[])for(const p of a.par||[])for(const c of p.cand||[]){const x=num(c.vap);if(x)v[String(c.n)]=x}
+  return{v,vv:num(j.v?.vv),c:num(j.e?.c??j.c?.c),te:num(j.e?.te),est:num(j.e?.est),pst:num(j.s?.pst),hg:String(j.hg||"").slice(0,8)};
+}
+function listaCands(j){
+  const out=[];const cg=(j.carg||[])[0]||{};
+  for(const a of cg.agr||[])for(const p of a.par||[])for(const c of p.cand||[])out.push({n:String(c.n),nm:c.nmu||c.nm,sg:p.sg||p.nm||""});
+  return out;
+}
+
+// ===== Estado (salvo no celular) =====
+const S=LS("prev-v1")||{mun:{},seen:{},cands:null,hist:[],t:{}};
+let CFG=null,CANDS=[],AB=null,REG={},estado=S.estado||null,t0=0,ciclos=0,REGP=null;
+
+// Lista de municípios do TSE (cód. TSE, IBGE e nome)
+async function municipios(){
+  if(CFG)return CFG;
+  const j=LS("mun-cfg-v1")||await tse(cfgUrl,true);LSset("mun-cfg-v1",j);
+  const ab=(j.abr||[]).find(a=>String(a.cd).toLowerCase()===UF);
+  CFG=(ab?.mu||[]).map(m=>({cd:pad(m.cd,5),ibge:String(m.cdi||""),nm:m.nm}));
+  return CFG;
+}
+// Regiões imediatas do IBGE (uma consulta, guardada no celular)
+function regioes(){return REGP||(REGP=regioes0())}
+async function regioes0(){
+  const salvo=LS("ibge-ce-v1");if(salvo){REG=salvo;return}
+  try{
+    const r=await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados/23/municipios");
+    const j=await r.json();
+    for(const m of j){
+      const nome=m["regiao-imediata"]?.nome||m.microrregiao?.mesorregiao?.nome||"Ceará";
+      REG[String(m.id)]=nome;
+    }
+    LSset("ibge-ce-v1",REG);
+  }catch(e){REG={}}
+}
+const regDe=m=>REG[m.ibge]||REG[m.ibge?.slice(0,6)]||"Ceará";
+function andamento(m){
+  if(!AB)return null;
+  return AB[UF+m.cd]||AB[m.cd]||AB[String(+m.cd)]||null;
+}
+
+// ===== Ciclo de atualização =====
+// 1 arquivo de andamento por ciclo; município só é baixado quando teve seção nova apurada.
+async function ciclo(){
+  ciclos++;const errs=[];
+  let lista;try{lista=await municipios()}catch(e){$("err").textContent="Não consegui a lista de municípios ("+e.message+").";return}
+  try{
+    const j=await tse(abUrl,true);AB={};
+    for(const a of j.abr||[])AB[String(a.cdabr||a.cd||"").toLowerCase()]={st:num(a.s?.st),te:num(a.e?.te)};
+  }catch(e){AB=null}
+  // Estado inteiro (lista de candidatos e totais) quando mudar ou a cada 2 min
+  const stUF=AB?.[UF]?.st;
+  if(!estado||(stUF!=null&&stUF!==S.seen.__uf)||Date.now()-(S.t.__uf||0)>120000){
+    try{const j=await tse(urlCargo(UF),true);estado=resumo(j);S.estado=estado;S.seen.__uf=stUF;S.t.__uf=Date.now();CANDS=listaCands(j);S.candsList=CANDS;montaLista()}
+    catch(e){errs.push("estado: "+e.message)}
+  }
+  // Municípios a baixar
+  let pend=[];
+  for(const m of lista){
+    const a=andamento(m),d=S.mun[m.cd];
+    if(a){
+      if(a.st===0){S.mun[m.cd]={v:{},vv:0,c:0,te:a.te||d?.te||0,est:0,pst:0,hg:""};continue}
+      if(a.st!==S.seen[m.cd]||!d)pend.push([m,a.st]);
+    }else if(!d||(d.pst<100&&Date.now()-(S.t[m.cd]||0)>300000))pend.push([m,null]);
+  }
+  if(!AB)pend=pend.slice(0,LOTE_SEM_AB);            // sem arquivo de andamento: no máximo 20 por ciclo
+  let n=0;
+  await Promise.all(pend.map(([m,st])=>tse(urlCargo(UF+m.cd)).then(j=>{
+    S.mun[m.cd]=resumo(j);S.seen[m.cd]=st;S.t[m.cd]=Date.now();
+    if(++n%15===0)desenha();
+  }).catch(e=>errs.push(m.nm+": "+e.message))));
+  if(estado){const p=prever();if(p)registraHist(p)}
+  LSset("prev-v1",S);desenha();
+  $("err").textContent=errs.length?`Falha em ${errs.length} arquivo(s) (${errs[0]}).`:"";
+  $("dot").className="dot "+(errs.length&&!estado?"err":"live");
+  t0=Date.now();
+}
+
+// ===== Previsão =====
+function prever(){
+  if(!CFG||!estado)return null;
+  const ids=sel().map(c=>c.n);
+  // Taxas observadas no estado: comparecimento e válidos por eleitor apurado
+  let estT=0,cT=0,vvT=0;
+  for(const m of CFG){const d=S.mun[m.cd];if(d&&d.est){estT+=d.est;cT+=d.c;vvT+=d.vv}}
+  const vvPorEleitor=estT?vvT/estT:0;
+  // Porcentagem de cada candidato por região e no estado (sobre votos válidos já apurados)
+  const reg={};const tot={vv:0,v:{}};
+  for(const m of CFG){
+    const d=S.mun[m.cd];if(!d||!d.vv)continue;
+    const r=regDe(m);const R=reg[r]=reg[r]||{vv:0,v:{},te:0,est:0,mun:0,munAp:0};
+    R.vv+=d.vv;tot.vv+=d.vv;
+    for(const id of ids){R.v[id]=(R.v[id]||0)+(d.v[id]||0);tot.v[id]=(tot.v[id]||0)+(d.v[id]||0)}
+  }
+  const out={c:{},mun:{},reg:{},teT:0,estT};
+  for(const id of ids)out.c[id]={now:0,pr:0,alt:0,falta:0};
+  for(const m of CFG){
+    const d=S.mun[m.cd]||{};const r=regDe(m);
+    const te=d.te||andamento(m)?.te||0;out.teT+=te;
+    const RR=reg[r];
+    const G=out.reg[r]=out.reg[r]||{te:0,est:0,mun:0,munAp:0,c:{}};
+    G.te+=te;G.est+=d.est||0;G.mun++;if(d.pst>=100)G.munAp++;
+    const frac=te&&d.est?Math.min(1,d.est/te):(d.pst||0)/100;
+    const M=out.mun[m.cd]={nm:m.nm,reg:r,ap:frac*100,c:{}};
+    const vvFaltam=Math.max(0,te*(1-frac))*vvPorEleitor;   // válidos esperados no que falta apurar
+    for(const id of ids){
+      const agora=d.v?.[id]||0;
+      const shReg=RR&&RR.vv?(RR.v[id]||0)/RR.vv:(tot.vv?(tot.v[id]||0)/tot.vv:0);
+      const shUF=tot.vv?(tot.v[id]||0)/tot.vv:0;
+      // Parte já apurada no município: extrapola pelo próprio município; parte sem apuração: região
+      const shMun=d.vv?agora/d.vv:shReg;
+      const pr=agora+shMun*vvFaltam;
+      const alt=agora+shUF*vvFaltam;
+      M.c[id]={now:agora,pr};
+      const C=out.c[id];C.now+=agora;C.pr+=pr;C.alt+=alt;C.falta+=pr-agora;
+      (G.c[id]=G.c[id]||{now:0,pr:0});G.c[id].now+=agora;G.c[id].pr+=pr;
+    }
+  }
+  for(const id of ids){const C=out.c[id];
+    const lo=Math.min(C.pr,C.alt)-0.15*C.falta,hi=Math.max(C.pr,C.alt)+0.15*C.falta;
+    C.lo=Math.max(C.now,lo);C.hi=hi}
+  out.ap=out.teT?estT/out.teT*100:0;
+  return out;
+}
+function registraHist(p){
+  const ponto={t:Date.now(),ap:p.ap,c:{}};for(const id in p.c)ponto.c[id]=Math.round(p.c[id].pr);
+  const ult=S.hist[S.hist.length-1];
+  if(ult&&Math.abs(ult.ap-ponto.ap)<0.05&&JSON.stringify(ult.c)===JSON.stringify(ponto.c))return;
+  S.hist.push(ponto);if(S.hist.length>200)S.hist.shift();
+}
+
+// ===== Candidatos escolhidos =====
+function sel(){
+  if(!S.cands){                                     // primeira vez: acha os padrões pelo nome
+    if(!CANDS.length)return[];
+    S.cands=[];const falt=[];
+    for(const nm of PADRAO){const c=CANDS.find(x=>norm(x.nm)===nm)||CANDS.find(x=>norm(x.nm).includes(nm));c?S.cands.push(c.n):falt.push(nm)}
+    if(falt.length)$("avisoCand").textContent=`Não encontrei entre os candidatos a Dep. Federal do CE: ${falt.join(", ")}. Confira o nome de urna e adicione abaixo.`;
+  }
+  return S.cands.map(n=>CANDS.find(c=>c.n===n)||{n,nm:"Nº "+n,sg:""});
+}
+function montaLista(){
+  $("lista-cand").innerHTML=CANDS.map(c=>`<option value="${esc(c.nm)} · ${esc(c.n)}">`).join("");
+}
+function addCand(){
+  const q=norm($("addq").value.split("·")[0]);const n=($("addq").value.match(/\d{4}/)||[])[0];
+  const c=CANDS.find(x=>x.n===n)||CANDS.find(x=>norm(x.nm)===q)||CANDS.find(x=>norm(x.nm).includes(q));
+  if(!c||!q&&!n){$("avisoCand").textContent="Candidato não encontrado entre os Dep. Federais do CE.";return}
+  sel();if(S.cands.includes(c.n))return;
+  if(S.cands.length>=5){$("avisoCand").textContent="Compare até 5 candidatos ao mesmo tempo.";return}
+  S.cands.push(c.n);$("addq").value="";$("avisoCand").textContent="";S.hist=[];LSset("prev-v1",S);desenha();
+}
+$("addb").addEventListener("click",addCand);
+$("addq").addEventListener("keydown",e=>{if(e.key==="Enter")addCand()});
+$("cands").addEventListener("click",e=>{const n=e.target.closest("[data-rm]")?.dataset.rm;if(n){S.cands=S.cands.filter(x=>x!==n);S.hist=[];LSset("prev-v1",S);desenha()}});
+
+// ===== Desenho =====
+function desenha(){
+  const cs=sel(),cor={};cs.forEach((c,i)=>cor[c.n]=CORES[i%CORES.length]);
+  $("cands").innerHTML=cs.map(c=>`<span class="cand"><i style="background:${cor[c.n]}"></i>${esc(c.nm)} · ${esc(c.sg)} ${esc(c.n)}<button type="button" data-rm="${c.n}" aria-label="Remover ${esc(c.nm)}">×</button></span>`).join("")||'<span class="msg">Carregando candidatos…</span>';
+  const lista=CFG||[];const com=lista.filter(m=>S.mun[m.cd]).length;
+  $("carga").textContent=`${com} de ${lista.length||184} municípios lidos · ${NREQ} req`;
+  if(estado?.hg)$("hg").textContent=estado.hg.slice(0,5);
+  const p=prever();if(!p)return;
+  $("progMun").style.width=p.ap+"%";
+  $("apMun").textContent=`${br(p.ap,2)}% do eleitorado apurado`;
+  $("logPv").textContent=`Previsão recalculada às ${hora(t0||Date.now())} · TSE ${estado?.hg||"—"}`;
+  // Barras: já apurado + previsto + faixa
+  const ord=cs.slice().sort((a,b)=>p.c[b.n].pr-p.c[a.n].pr);
+  const max=Math.max(1,...ord.map(c=>p.c[c.n].hi));
+  $("pv").innerHTML=ord.map((c,i)=>{const C=p.c[c.n],w=x=>(x/max*100).toFixed(2)+"%";
+    return`<div class="pr"><div class="top"><div class="nm" style="color:${cor[c.n]}">${i+1}º ${esc(c.nm)}</div><div class="big num">${br(C.pr)} <small>previstos</small></div></div>
+    <div class="track"><i class="now" style="width:${w(C.now)};background:${cor[c.n]}"></i><i class="proj" style="left:${w(C.now)};width:${w(C.pr-C.now)};background:${cor[c.n]}"></i><i class="band" style="left:${w(C.lo)};width:${w(C.hi-C.lo)}"></i></div>
+    <div class="meta num"><span>apurado <b>${br(C.now)}</b></span><span>faixa <b>${br(C.lo)} – ${br(C.hi)}</b></span><span>${esc(c.sg)} · ${esc(c.n)}</span></div></div>`}).join("");
+  if(ord.length>1){
+    const a=p.c[ord[0].n],b=p.c[ord[1].n];
+    const certo=a.lo>b.hi;
+    $("pv").innerHTML+=`<div class="msg">${certo?"Pela faixa provável, a ordem entre os dois primeiros já está bem definida.":"As faixas dos dois primeiros se cruzam: a ordem ainda pode mudar."} Diferença prevista: <b class="num">${br(a.pr-b.pr)}</b> votos.</div>`;
+  }
+  desenhaHist(cs,cor);desenhaReg(p,cs,cor);desenhaMun(p,cs,cor);
+}
+function desenhaHist(cs,cor){
+  const h=S.hist;if(h.length<2){$("hist").innerHTML='<div class="msg">O gráfico aparece a partir da segunda atualização com dados novos.</div>';return}
+  const W=360,H=180,L=46,Rr=10,T=10,B=26;
+  const xs=h.map(p=>p.ap),x0=Math.min(...xs),x1=Math.max(...xs,x0+0.01);
+  let y0=Infinity,y1=0;for(const p of h)for(const c of cs){const v=p.c[c.n];if(v!=null){y0=Math.min(y0,v);y1=Math.max(y1,v)}}
+  if(!isFinite(y0))return;const pd=(y1-y0)*0.1||1000;y0=Math.max(0,y0-pd);y1+=pd;
+  const X=v=>L+(v-x0)/(x1-x0)*(W-L-Rr),Y=v=>T+(1-(v-y0)/(y1-y0))*(H-T-B);
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolução da previsão conforme a apuração avança">`;
+  for(let k=0;k<=3;k++){const v=y0+(y1-y0)*k/3;s+=`<line x1="${L}" x2="${W-Rr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L-4}" y="${Y(v)+4}" text-anchor="end">${br(v/1000,0)} mil</text>`}
+  s+=`<text x="${L}" y="${H-6}">${br(x0,1)}% apurado</text><text x="${W-Rr}" y="${H-6}" text-anchor="end">${br(x1,1)}%</text>`;
+  for(const c of cs){const pts=h.filter(p=>p.c[c.n]!=null).map(p=>`${X(p.ap).toFixed(1)},${Y(p.c[c.n]).toFixed(1)}`);
+    if(pts.length>1)s+=`<polyline fill="none" stroke="${cor[c.n]}" stroke-width="2.5" stroke-linejoin="round" points="${pts.join(" ")}"/>`;
+    const u=pts[pts.length-1];if(u){const [a,b]=u.split(",");s+=`<circle cx="${a}" cy="${b}" r="3.5" fill="${cor[c.n]}"/>`}}
+  $("hist").innerHTML=s+"</svg>";
+}
+const valores=(obj,cs,cor,campo)=>`<div class="vals num">${cs.map(c=>{const v=obj.c[c.n]||{now:0,pr:0};return`<span><i style="background:${cor[c.n]}"></i>${esc(c.nm.split(" ")[0])}<br><b>${br(v.pr)}</b> prev. · ${br(v.now)} apur.</span>`}).join("")}</div>`;
+function desenhaReg(p,cs,cor){
+  const regs=Object.entries(p.reg).sort((a,b)=>b[1].te-a[1].te);
+  $("regFonte").textContent=Object.keys(REG).length?"regiões imediatas do IBGE":"sem regiões do IBGE (usando o estado)";
+  const fr=$("fr"),atual=fr.value;
+  fr.innerHTML='<option value="">Todas as regiões</option>'+regs.map(([r])=>`<option${r===atual?" selected":""}>${esc(r)}</option>`).join("");
+  $("reg").innerHTML=regs.map(([r,G])=>`<div class="rg"><div class="t"><b>${esc(r)}</b><span class="num">${br(G.te?G.est/G.te*100:0,1)}% apurado · ${G.munAp}/${G.mun} mun. completos</span></div>${valores(G,cs,cor)}</div>`).join("");
+}
+let VIS=30;
+function desenhaMun(p,cs,cor){
+  const q=norm($("q").value),fr=$("fr").value,ord=$("ord").value;
+  let rows=Object.entries(p.mun).map(([cd,M])=>({cd,...M}));
+  if(q)rows=rows.filter(r=>norm(r.nm).includes(q));
+  if(fr)rows=rows.filter(r=>r.reg===fr);
+  const a=cs[0]?.n,b=cs[1]?.n;
+  rows.sort({f:(x,y)=>x.ap-y.ap,v0:(x,y)=>(y.c[a]?.pr||0)-(x.c[a]?.pr||0),d:(x,y)=>Math.abs((y.c[a]?.pr||0)-(y.c[b]?.pr||0))-Math.abs((x.c[a]?.pr||0)-(x.c[b]?.pr||0)),n:(x,y)=>x.nm.localeCompare(y.nm,"pt-BR")}[ord]);
+  $("mun").innerHTML=rows.slice(0,VIS).map(r=>`<div class="rg"><div class="t"><b>${esc(r.nm)}</b><span class="num">${br(r.ap,1)}% apurado · ${esc(r.reg)}</span></div>${valores(r,cs,cor)}</div>`).join("")
+    +(rows.length>VIS?`<button type="button" class="more" id="maisMun">Ver mais ${Math.min(30,rows.length-VIS)} de ${rows.length-VIS}</button>`:"")||'<div class="msg">Nenhum município encontrado.</div>';
+  const bm=$("maisMun");if(bm)bm.onclick=()=>{VIS+=30;desenha()};
+}
+for(const id of ["q","fr","ord"])$(id).addEventListener(id==="q"?"input":"change",()=>{VIS=30;desenha()});
+
+// ===== Início =====
+if(S.candsList)CANDS=S.candsList;
+municipios().then(()=>regioes()).then(desenha).catch(()=>{});
+let rodando=false;
+async function tick(){if(rodando||document.hidden)return;rodando=true;try{await ciclo()}finally{rodando=false}}
+regioes().finally(tick);setInterval(tick,CICLO_MS);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-t0>CICLO_MS)tick()});
+setInterval(()=>{const s=Math.max(0,Math.round((CICLO_MS-(Date.now()-t0))/1000));$("cd").textContent=`atualização em ${s} s`},1000);
+</script>
+</body>
+</html>
