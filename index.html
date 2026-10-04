@@ -277,7 +277,8 @@ function achata(j){
   }
   return{cand,leg,nv:num(cg.nv),pst:j.s?.pst??j.pst,hg:j.hg??j.ht,vv:j.v?.vv??j.vv,
     tv:j.v?.tv??j.c?.c??j.e?.c??j.tv,st:j.s?.st,ts:j.s?.ts,
-    te:num(j.e?.te),est:num(j.e?.est),esnt:num(j.e?.esnt)};
+    te:num(j.e?.te),est:num(j.e?.est),esnt:num(j.e?.esnt),
+    sj:num(j.v?.van)+num(j.v?.vansj)};                // votos anulados/sub judice: podem voltar a ser válidos
 }
 
 // ===== Eleitos garantidos =====
@@ -290,30 +291,54 @@ function achata(j){
 //    com QE_máx = (válidos + R) / vagas; o candidato está garantido se, mesmo com R indo para
 //    colegas de partido, sua pior posição no partido cabe nessas cadeiras e ele tem ≥ 10% do QE_máx.
 function restantes(j){
-  if(pstOf(j)>=100)return 0;
-  if(j.esnt)return j.esnt;
-  if(j.te&&j.est)return Math.max(0,j.te-j.est);
-  return Infinity;                                  // sem dado de eleitorado: não arrisca
+  const p=pstOf(j);
+  if(p>=100)return 0;
+  const a=num(j.esnt),b=j.te&&j.est?Math.max(0,j.te-j.est):0;
+  const R=Math.max(a,b);
+  return R>0?R:Infinity;                            // apuração incompleta sem eleitorado restante informado: não arrisca
 }
 const oficial=c=>c.e==="s"||norm(c.st).startsWith("ELEITO");
+// Custo mínimo (em votos) para fazer k adversários empatarem ou passarem v: soma dos k menores déficits.
+// Empate conta como derrota (o desempate do TSE pode não favorecer o candidato).
+function custoK(v,adv,k){
+  const d=adv.map(o=>Math.max(0,v-num(o.vap))).sort((a,b)=>a-b);
+  if(d.length<k)return Infinity;
+  let s=0;for(let i=0;i<k;i++)s+=d[i];return s;
+}
 function eleitos(j,tipo,vagas){
-  const lista=ordena(j),out=new Map(),R=restantes(j),vv=num(j.vv)||lista.reduce((a,c)=>a+num(c.vap),0);
+  const lista=ordena(j),out=new Map(),R0=restantes(j),vv=num(j.vv);
+  const R=R0+num(j.sj);                             // pior caso: anulados sub judice também viram válidos de adversários
   for(const c of lista)if(oficial(c))out.set(String(c.n),"TSE");
-  if(!isFinite(R)||!vv)return out;
+  // Só calcula com válidos oficiais e eleitorado restante conhecidos (nunca com estimativa)
+  if(!isFinite(R)||!vv||!vagas)return out;
+  const marca=c=>{if(!out.has(String(c.n)))out.set(String(c.n),"calc")};
   if(tipo==="maj"){
-    const c=lista[0];if(c&&num(c.vap)>(vv+R)/2&&!out.has(String(c.n)))out.set(String(c.n),"calc");
+    // Maioria absoluta dos válidos mesmo que todos os R votos restantes sejam válidos e vão para outros
+    const c=lista[0];if(c&&2*num(c.vap)>vv+R)marca(c);
   }else if(tipo==="plu"){
-    lista.forEach((c,i)=>{const v=num(c.vap);
-      const ameaca=lista.filter((o,k)=>k!==i&&num(o.vap)+R>=v).length;
-      if(ameaca<vagas&&!out.has(String(c.n)))out.set(String(c.n),"calc")});
+    // Perde a vaga se os R votos bastarem para levar "vagas" adversários a empatar/passar
+    for(const c of lista){const adv=lista.filter(o=>o!==c);if(custoK(num(c.vap),adv,vagas)>R)marca(c)}
   }else{
-    const qe=(vv+R)/vagas,g={};
-    for(const c of lista){const k=grupo(c);(g[k]=g[k]||{v:(j.leg||{})[k]||0,c:[]}).v+=num(c.vap);g[k].c.push(c)}
+    // Proporcional. Pior caso: o adversário divide R entre colegas de partido (r_in) e votos que só
+    // aumentam o quociente (R - r_in). Cadeiras garantidas do partido = floor((V + r_in) / QEmax),
+    // QEmax = ceil((vv + R) / vagas). Sobras não são contadas (só ajudariam o candidato).
+    const qeMax=Math.ceil((vv+R)/vagas),g={};
+    for(const c of lista){const k=grupo(c);(g[k]=g[k]||{v:num((j.leg||{})[k]),c:[]}).v+=num(c.vap);g[k].c.push(c)}
     for(const k in g){
-      const cad=Math.floor(g[k].v/qe);if(!cad)continue;
-      for(const c of g[k].c){const v=num(c.vap);if(v<0.1*qe)break;
-        const pior=1+g[k].c.filter(o=>o!==c&&num(o.vap)+R>v).length;
-        if(pior<=cad&&!out.has(String(c.n)))out.set(String(c.n),"calc")}
+      const G=g[k];
+      for(const c of G.c){
+        const v=num(c.vap);
+        if(v<0.1*qeMax)continue;                      // cláusula de 10% do quociente, no pior caso
+        const colegas=G.c.filter(o=>o!==c);
+        let seguro=Math.floor(G.v/qeMax)>=1;
+        for(let k2=0;seguro&&k2<=colegas.length;k2++){
+          const custo=custoK(v,colegas,k2);
+          if(custo>R)break;                            // não dá para empurrar k2 colegas à frente
+          const cad=Math.floor((G.v+custo)/qeMax);
+          if(k2>=cad)seguro=false;                     // k2 colegas à frente ocupam todas as cadeiras garantidas
+        }
+        if(seguro)marca(c);
+      }
     }
   }
   return out;
