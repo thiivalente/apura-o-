@@ -301,6 +301,14 @@ function projecao(j,c,vagas){
 }
 
 // ===== Renderização =====
+const VER={6:7,7:7};                              // quantos deputados aparecem em cada lista
+document.addEventListener("click",ev=>{
+  const b=ev.target.closest("[data-ver]");if(!b)return;
+  const c=+b.dataset.ver,d=+b.dataset.d,sec=b.closest("section");
+  VER[c]=d?VER[c]+d:7;
+  desenha();
+  if(!d&&sec)sec.scrollIntoView({block:"start"});
+});
 function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,start=0}){
   return lista.slice(0,max).map((c,j)=>{
     const i=j+start;
@@ -326,11 +334,15 @@ function renderProp(cargo,j,id,apId){
   const t=TRACK[cargo],lista=ordena(j);
   $(apId).textContent=`${br(pstOf(j),2)}% apurado`;
   const i=lista.findIndex(c=>String(c.n)===t.n||norm(c.nm).includes(t.nome));
-  let h=linhas(lista,{e:E_EST,uf:"ce",vagas:1,max:7,show:"votos",cls:"sq",track:t});
+  const ver=VER[cargo];
+  let h=linhas(lista,{e:E_EST,uf:"ce",vagas:1,max:ver,show:"votos",cls:"sq",track:t});
+  // "Ver mais" logo após o último colocado visível
+  const resta=lista.length-ver;
+  if(resta>0||ver>7)h+=`<div class="tools">${resta>0?`<button type="button" class="more" data-ver="${cargo}" data-d="20">Ver mais ${Math.min(20,resta)} de ${resta}</button>`:""}${ver>7?`<button type="button" class="more" data-ver="${cargo}" data-d="0">Ver menos</button>`:""}</div>`;
   let hl="";
   if(i>=0){
     const c=lista[i],p=projecao(j,c,VAGAS[cargo]);
-    if(i>=7)h+=`<div class="gap"></div>`+linhas([c],{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,start:i});
+    if(i>=ver)h+=`<div class="gap"></div>`+linhas([c],{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,start:i});
     if(p)h+=p.dentro
       ?`<div class="proj ok">📈 Projeção final: DENTRO<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"}</small></div>`
       :`<div class="proj">📈 Projeção final: FORA · faltam ~${br(p.faltam)} votos<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"} · agora: fora</small></div>`;
