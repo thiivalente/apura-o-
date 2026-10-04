@@ -100,6 +100,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .log.old{color:#fca5a5}
 .refresh{font:800 12px var(--f);border:0;border-radius:99px;padding:6px 12px;background:#fff;color:var(--orange2)}
 .refresh:disabled{opacity:.5}
+.eleito{display:inline-block;font:900 10px var(--f);letter-spacing:.06em;color:#052e16;background:#4ade80;border-radius:5px;padding:1px 5px;vertical-align:1px}
+.row.won{border-color:#4ade80}
 /* Municípios */
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg button{flex:1 1 140px;font:800 13px var(--f);padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--fg);text-transform:uppercase}
@@ -158,7 +160,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     <div class="list" id="l-mun"></div>
   </section>
 
-  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa.</span></div>
+  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa. ✓ ELEITO* = garantido matematicamente (mesmo que todos os votos restantes fossem para os adversários).</span></div>
 </div>
 
 <script>
@@ -264,17 +266,59 @@ async function get(e,uf,c){
 // Formato 2026 (-u.json): carg[] > agr[] (federação) > par[] (partido) > cand[]
 function achata(j){
   if(Array.isArray(j.cand))return j;
-  const cand=[];const cg=(j.carg||[])[0]||{};
+  const cand=[],leg={};const cg=(j.carg||[])[0]||{};
   for(const a of cg.agr||[]){
     const fed=(a.par||[]).length>1&&a.nm;
-    for(const p of a.par||[])for(const c of p.cand||[]){
-      const sg=p.sg||p.nm||"";
-      cand.push({...c,nm:c.nmu||c.nm,sg,cc:fed?a.nm:sg});
+    for(const p of a.par||[]){
+      const sg=p.sg||p.nm||"",cc=fed?a.nm:sg;
+      leg[cc]=(leg[cc]||0)+num(p.tvtl);            // votos de legenda (só no partido/federação)
+      for(const c of p.cand||[])cand.push({...c,nm:c.nmu||c.nm,sg,cc});
     }
   }
-  return{cand,pst:j.s?.pst??j.pst,hg:j.hg??j.ht,vv:j.v?.vv??j.vv,
-    tv:j.v?.tv??j.c?.c??j.e?.c??j.tv,st:j.s?.st,ts:j.s?.ts};
+  return{cand,leg,nv:num(cg.nv),pst:j.s?.pst??j.pst,hg:j.hg??j.ht,vv:j.v?.vv??j.vv,
+    tv:j.v?.tv??j.c?.c??j.e?.c??j.tv,st:j.s?.st,ts:j.s?.ts,
+    te:num(j.e?.te),est:num(j.e?.est),esnt:num(j.e?.esnt)};
 }
+
+// ===== Eleitos garantidos =====
+// R = eleitores das seções ainda não apuradas (teto de votos que ainda podem entrar).
+// Um candidato é marcado ELEITO quando o TSE já o declarou, ou quando nem que TODOS os votos
+// restantes fossem para os adversários ele perderia a vaga:
+//  · Maioria absoluta (presidente, governador): v > (válidos + R) / 2
+//  · Senado (mais votados, N vagas): menos de N adversários com v_adv + R ≥ v
+//  · Deputados (proporcional): o partido/federação garante floor(votos_partido / QE_máx) cadeiras,
+//    com QE_máx = (válidos + R) / vagas; o candidato está garantido se, mesmo com R indo para
+//    colegas de partido, sua pior posição no partido cabe nessas cadeiras e ele tem ≥ 10% do QE_máx.
+function restantes(j){
+  if(pstOf(j)>=100)return 0;
+  if(j.esnt)return j.esnt;
+  if(j.te&&j.est)return Math.max(0,j.te-j.est);
+  return Infinity;                                  // sem dado de eleitorado: não arrisca
+}
+const oficial=c=>c.e==="s"||norm(c.st).startsWith("ELEITO");
+function eleitos(j,tipo,vagas){
+  const lista=ordena(j),out=new Map(),R=restantes(j),vv=num(j.vv)||lista.reduce((a,c)=>a+num(c.vap),0);
+  for(const c of lista)if(oficial(c))out.set(String(c.n),"TSE");
+  if(!isFinite(R)||!vv)return out;
+  if(tipo==="maj"){
+    const c=lista[0];if(c&&num(c.vap)>(vv+R)/2&&!out.has(String(c.n)))out.set(String(c.n),"calc");
+  }else if(tipo==="plu"){
+    lista.forEach((c,i)=>{const v=num(c.vap);
+      const ameaca=lista.filter((o,k)=>k!==i&&num(o.vap)+R>=v).length;
+      if(ameaca<vagas&&!out.has(String(c.n)))out.set(String(c.n),"calc")});
+  }else{
+    const qe=(vv+R)/vagas,g={};
+    for(const c of lista){const k=grupo(c);(g[k]=g[k]||{v:(j.leg||{})[k]||0,c:[]}).v+=num(c.vap);g[k].c.push(c)}
+    for(const k in g){
+      const cad=Math.floor(g[k].v/qe);if(!cad)continue;
+      for(const c of g[k].c){const v=num(c.vap);if(v<0.1*qe)break;
+        const pior=1+g[k].c.filter(o=>o!==c&&num(o.vap)+R>v).length;
+        if(pior<=cad&&!out.has(String(c.n)))out.set(String(c.n),"calc")}
+    }
+  }
+  return out;
+}
+const selo=f=>`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}</span>`;
 
 // ===== Projeção proporcional (estimativa) =====
 function projecao(j,c,vagas){
@@ -314,9 +358,10 @@ document.addEventListener("click",ev=>{
   desenha();
   if(!d&&sec)sec.scrollIntoView({block:"start"});
 });
-function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,start=0}){
+function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,start=0,el=null,pos=null}){
   return lista.slice(0,max).map((c,j)=>{
-    const i=j+start;
+    const i=pos?pos(c):j+start;
+    const ef=el?.get(String(c.n));
     const tc=track&&String(c.n)===track.n?" "+track.cls:"";
     const pct=num(c.pvap);
     const lead=i<vagas?" lead":"";
@@ -324,34 +369,41 @@ function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,
     const right=show==="votos"
       ?`<div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div>`
       :`<div class="v num">${ceTxt}${esc(c.pvap||"0,00")}%</div>`;
-    return `<div class="row${lead}${tc} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
+    return `<div class="row${lead}${tc}${ef?" won":""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
       <span class="p">${i+1}º</span><div class="av">${av(foto(e,uf,c),c.nm)}</div>
-      <div class="n"><b>${esc(c.nm)}</b><span>${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
+      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
   }).join("");
 }
 
 function renderMaj(id,apId,j,opt){
   $(apId).textContent=`${br(pstOf(j),2)}% apurado`;
-  $(id).innerHTML=linhas(ordena(j),opt)||'<div class="msg">Sem candidatos ainda.</div>';
+  const el=eleitos(j,opt.vagas>1?"plu":"maj",opt.vagas||1);
+  $(id).innerHTML=linhas(ordena(j),{...opt,el})||'<div class="msg">Sem candidatos ainda.</div>';
 }
 
 function renderProp(cargo,j,id,apId){
   const t=TRACK[cargo],lista=ordena(j);
   $(apId).textContent=`${br(pstOf(j),2)}% apurado`;
   const i=lista.findIndex(c=>String(c.n)===t.n||norm(c.nm).includes(t.nome));
-  const ver=VER[cargo];
-  let h=linhas(lista,{e:E_EST,uf:"ce",vagas:1,max:ver,show:"votos",cls:"sq",track:t});
+  const ver=VER[cargo],el=eleitos(j,"prop",j.nv||VAGAS[cargo]);
+  const posDe=c=>lista.indexOf(c);
+  let h=linhas(lista,{e:E_EST,uf:"ce",vagas:1,max:ver,show:"votos",cls:"sq",track:t,el,pos:posDe});
+  // Eleitos sempre aparecem, mesmo abaixo da parte visível da lista
+  const extras=lista.slice(ver).filter(c=>el.has(String(c.n)));
+  if(extras.length)h+=`<div class="gap"></div><div class="msg">Eleitos fora da lista visível</div>`+linhas(extras,{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,el,pos:posDe});
+  if(el.size)$(apId).textContent+=` · ${el.size} eleito${el.size>1?"s":""} de ${j.nv||VAGAS[cargo]}`;
   // "Ver mais" logo após o último colocado visível
   const resta=lista.length-ver;
   if(resta>0||ver>7)h+=`<div class="tools">${resta>0?`<button type="button" class="more" data-ver="${cargo}" data-d="20">Ver mais ${Math.min(20,resta)} de ${resta}</button>`:""}${ver>7?`<button type="button" class="more" data-ver="${cargo}" data-d="0">Ver menos</button>`:""}</div>`;
   let hl="";
   if(i>=0){
     const c=lista[i],p=projecao(j,c,VAGAS[cargo]);
-    if(i>=ver)h+=`<div class="gap"></div>`+linhas([c],{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,start:i});
-    if(p)h+=p.dentro
+    if(i>=ver&&!el.has(String(c.n)))h+=`<div class="gap"></div>`+linhas([c],{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,start:i,el});
+    if(el.has(String(c.n)))h+=`<div class="proj ok">✓ ELEITO${el.get(String(c.n))==="TSE"?" · declarado pelo TSE":" · garantido matematicamente"}</div>`;
+    else if(p)h+=p.dentro
       ?`<div class="proj ok">📈 Projeção final: DENTRO<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"}</small></div>`
       :`<div class="proj">📈 Projeção final: FORA · faltam ~${br(p.faltam)} votos<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"} · agora: fora</small></div>`;
-    const st=c.e==="s"||norm(c.st).startsWith("ELEITO")?'<span class="st ok">ELEITO</span>':norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
+    const st=el.has(String(c.n))||oficial(c)?'<span class="st ok">ELEITO</span>':norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
     hl=`<div class="hl"><div class="ph">${av(foto(E_EST,"ce",c),c.nm)}</div><div class="info">
       <div class="lbl">${t.lbl}</div><div class="nm">${t.html}</div>
       <div class="tag"><span class="badge ${t.badge} num">${esc(c.n||t.n)}</span><span>${t.slogan}</span></div>
