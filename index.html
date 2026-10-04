@@ -96,6 +96,23 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .msg{color:var(--muted);font-size:13px}
 .foot{color:var(--muted);font-size:12px;text-align:center;display:grid;gap:4px}
 .foot a{color:var(--orange)}
+/* Municípios */
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{flex:1 1 140px;font:800 13px var(--f);padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--fg);text-transform:uppercase}
+.seg button[aria-pressed="true"].est{background:linear-gradient(90deg,#155e75,#166534);border-color:var(--green)}
+.seg button[aria-pressed="true"].fed{background:linear-gradient(90deg,#c2410c,#5b2a0a);border-color:var(--yellow)}
+.tools{display:flex;gap:6px;flex-wrap:wrap}
+.tools input,.tools select{flex:1 1 140px;min-width:0;font:600 14px var(--f);padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--fg)}
+.sum{display:flex;gap:6px 14px;flex-wrap:wrap;font:700 13px var(--f);color:var(--muted)}
+.sum b{color:var(--fg)}
+.mu{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 10px;border-radius:10px;background:var(--card2)}
+.mu .mn{font:800 14px var(--f);text-transform:uppercase;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mu .mv{font:900 17px var(--f);text-align:right}
+.mu .md{font:600 12px var(--f);color:var(--muted)}
+.mu .mp{font:700 12px var(--f);color:var(--orange);text-align:right}
+.mu .mb{grid-column:1/-1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.mu .mb i{display:block;height:100%;background:linear-gradient(90deg,var(--orange),#ef4444)}
+.more{font:800 13px var(--f);padding:10px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--orange)}
 @media (max-width:420px){.hl{grid-template-columns:86px 1fr}.hl .ph{width:86px;height:104px}.hl .nm{font-size:22px}.hl .votes{font-size:26px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -109,7 +126,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     </div>
     <div class="hrow" style="align-items:center"><span class="big num" id="apCE">0,00% apurado</span></div>
     <div class="prog"><i id="progCE"></i></div>
-    <nav class="tabs"><a href="#deputados">📋 Deputados</a><a href="#governador">🗺️ Governo</a><a href="#senador">🏛️ Senado</a><a href="#presidente">🇧🇷 Presidente</a></nav>
+    <nav class="tabs"><a href="#deputados">📋 Deputados</a><a href="#governador">🗺️ Governo</a><a href="#senador">🏛️ Senado</a><a href="#presidente">🇧🇷 Presidente</a><a href="#municipios">📍 Municípios</a></nav>
   </header>
 
   <div id="hls"></div>
@@ -128,6 +145,13 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 
   <section class="sec"><div class="sh"><h2>Dep. Federal · CE</h2><span class="ap num" id="ap-fed"></span></div>
     <div class="list" id="l-fed"><div class="msg">Carregando…</div></div></section>
+
+  <section class="sec" id="municipios"><div class="sh"><h2>Votos por município</h2><span class="ap num" id="ap-mun"></span></div>
+    <div class="seg"><button type="button" class="est" id="b-7" aria-pressed="true">Guilherme · Estadual</button><button type="button" class="fed" id="b-6" aria-pressed="false">Eduardo · Federal</button></div>
+    <div class="tools"><input id="q" type="search" placeholder="Buscar município" autocomplete="off"><select id="ord"><option value="v">Mais votos</option><option value="p">% no município</option><option value="a">Mais apurado</option><option value="n">Nome (A–Z)</option></select></div>
+    <div class="sum num" id="sum-mun"></div>
+    <div class="list" id="l-mun"><div class="msg">Carregando municípios…</div></div>
+  </section>
 
   <div class="foot"><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa.</span></div>
 </div>
@@ -154,7 +178,27 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const url=(e,uf,c)=>`${BASE}/${e}/dados/${uf}/${uf}-c${pad(c,4)}-e${pad(e,6)}-u.json`;
 const foto=(e,uf,c)=>c.sqcand?`${BASE}/${e}/fotos/${uf}/${c.sqcand}.jpeg`:"";
 const ini=nm=>esc((nm||"?").split(/\s+/).slice(0,2).map(w=>w[0]).join(""));
-const av=(src,nm)=>src?`<img src="${src}" alt="" loading="lazy" onerror="this.parentNode.textContent='${ini(nm)}'">`:ini(nm);
+// Fotos: baixadas uma vez, guardadas no Cache Storage do navegador e reutilizadas
+const FOTO=new Map();
+async function carregaFoto(u){
+  FOTO.set(u,null);
+  let src=u;
+  try{
+    const cache="caches" in window?await caches.open("fotos-tse-2026"):null;
+    let r=cache&&await cache.match(u);
+    if(!r){r=await fetch(u);if(!r.ok)throw 0;if(cache)await cache.put(u,r.clone())}
+    src=URL.createObjectURL(await r.blob());
+  }catch(e){}
+  FOTO.set(u,src);
+  document.querySelectorAll("img[data-f]").forEach(i=>{if(i.dataset.f!==u)return;i.src=src;i.hidden=false;i.nextSibling&&i.nextSibling.remove()});
+}
+const av=(u,nm)=>{
+  if(!u)return ini(nm);
+  if(!FOTO.has(u))carregaFoto(u);
+  const src=FOTO.get(u);
+  return src?`<img src="${src}" alt="" onerror="this.parentNode.textContent='${ini(nm)}'">`
+            :`<img data-f="${esc(u)}" alt="" hidden onerror="this.parentNode.textContent='${ini(nm)}'"><span>${ini(nm)}</span>`;
+};
 const ordena=j=>(j.cand||[]).slice().sort((a,b)=>num(b.vap)-num(a.vap));
 const grupo=c=>(c.cc||c.par||"").trim();
 const grupoCurto=g=>{const s=g.split("(")[0].trim();return s||g};
@@ -254,6 +298,73 @@ function renderProp(cargo,j,id,apId){
   $(id).innerHTML=h;
   return hl;
 }
+
+// ===== Municípios =====
+const MUN={cargo:7,lista:null,dados:{6:{},7:{}},vis:60,carregando:false,ultimo:{6:0,7:0}};
+const MUN_REFRESH=120000, CONC=8;
+async function municipios(){
+  if(MUN.lista)return MUN.lista;
+  const r=await fetch(`${BASE}/${E_EST}/config/mun-e${pad(E_EST,6)}-cm.json`);
+  if(!r.ok)throw new Error("HTTP "+r.status+" na lista de municípios");
+  const j=await r.json();
+  const ab=(j.abr||[]).find(a=>String(a.cd).toLowerCase()==="ce");
+  MUN.lista=(ab?.mu||[]).map(m=>({cd:pad(m.cd,5),nm:m.nm}));
+  return MUN.lista;
+}
+async function lerMun(cargo,m){
+  const u=`${BASE}/${E_EST}/dados/ce/ce${m.cd}-c${pad(cargo,4)}-e${pad(E_EST,6)}-u.json?t=${Date.now()}`;
+  const r=await fetch(u,{cache:"no-store"});
+  if(!r.ok)return;
+  const j=achata(await r.json());
+  const lista=ordena(j),t=TRACK[cargo];
+  const i=lista.findIndex(c=>String(c.n)===t.n);
+  const c=lista[i];
+  MUN.dados[cargo][m.cd]={nm:m.nm,v:c?num(c.vap):0,p:c?num(c.pvap):0,pos:i>=0?i+1:null,tot:lista.length,ap:pstOf(j)};
+}
+async function atualizaMun(forcar){
+  const cargo=MUN.cargo;
+  if(MUN.carregando)return;
+  if(!forcar&&Date.now()-MUN.ultimo[cargo]<MUN_REFRESH)return renderMun();
+  MUN.carregando=true;
+  try{
+    const lista=await municipios();
+    let k=0;
+    const worker=async()=>{while(k<lista.length){const m=lista[k++];try{await lerMun(cargo,m)}catch(e){}if(k%CONC===0&&cargo===MUN.cargo)renderMun()}};
+    await Promise.all(Array.from({length:CONC},worker));
+    MUN.ultimo[cargo]=Date.now();
+  }catch(e){$("l-mun").innerHTML=`<div class="msg">${esc(e.message)}</div>`}
+  MUN.carregando=false;
+  renderMun();
+  if(cargo!==MUN.cargo)atualizaMun();
+}
+function renderMun(){
+  const cargo=MUN.cargo,d=MUN.dados[cargo],tot=MUN.lista?MUN.lista.length:0;
+  const q=norm($("q").value.trim()),ord=$("ord").value;
+  let rows=Object.values(d);
+  const votos=rows.reduce((a,r)=>a+r.v,0),com=rows.filter(r=>r.v>0).length;
+  const apMed=rows.length?rows.reduce((a,r)=>a+r.ap,0)/rows.length:0;
+  $("ap-mun").textContent=rows.length?`${br(apMed,2)}% apurado (média)`:"";
+  $("sum-mun").innerHTML=`<span><b>${br(votos)}</b> votos somados</span><span>votado em <b>${com}</b> de ${tot||"…"} municípios</span>${rows.length<tot?`<span>carregando ${rows.length}/${tot}…</span>`:""}`;
+  if(q)rows=rows.filter(r=>norm(r.nm).includes(q));
+  const f={v:(a,b)=>b.v-a.v,p:(a,b)=>b.p-a.p,a:(a,b)=>b.ap-a.ap,n:(a,b)=>a.nm.localeCompare(b.nm,"pt-BR")}[ord];
+  rows.sort(f);
+  const vis=rows.slice(0,MUN.vis);
+  $("l-mun").innerHTML=vis.map(r=>`<div class="mu"><div class="mn">${esc(r.nm)}</div><div class="mv num">${br(r.v)}</div>
+    <div class="md num">${br(r.p,2)}% dos válidos${r.pos?` · ${r.pos}º de ${r.tot}`:""}</div><div class="mp num">${br(r.ap,2)}% apurado</div>
+    <div class="mb"><i style="width:${Math.min(100,r.ap)}%"></i></div></div>`).join("")
+    +(rows.length>MUN.vis?`<button type="button" class="more" id="mais">Ver mais ${rows.length-MUN.vis} municípios</button>`:"")
+    ||'<div class="msg">Nenhum município encontrado.</div>';
+  const b=$("mais");if(b)b.onclick=()=>{MUN.vis+=60;renderMun()};
+}
+for(const c of [6,7])$("b-"+c).addEventListener("click",()=>{
+  MUN.cargo=c;MUN.vis=60;
+  $("b-6").setAttribute("aria-pressed",c===6);$("b-7").setAttribute("aria-pressed",c===7);
+  renderMun();atualizaMun();
+});
+$("q").addEventListener("input",renderMun);
+$("ord").addEventListener("change",renderMun);
+atualizaMun(true);
+setInterval(()=>atualizaMun(),30000);
 
 // ===== Ciclo =====
 let t0=0;
