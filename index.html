@@ -124,7 +124,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
       <div><h1>APURAÇÃO 2026 · CEARÁ</h1><div class="sub">Resultado oficial do TSE</div></div>
       <div class="chip"><span class="y" id="cd">atualizando…</span><span class="dot" id="dot"></span>TSE <b id="hg">--:--</b></div>
     </div>
-    <div class="hrow" style="align-items:center"><span class="big num" id="apCE">0,00% apurado</span></div>
+    <div class="hrow" style="align-items:center;justify-content:flex-start"><span class="big num" id="apCE">0,00% apurado</span><span class="chip num" id="totCE" hidden></span></div>
     <div class="prog"><i id="progCE"></i></div>
     <nav class="tabs"><a href="#deputados">📋 Deputados</a><a href="#governador">🗺️ Governo</a><a href="#senador">🏛️ Senado</a><a href="#presidente">🇧🇷 Presidente</a><a href="#municipios">📍 Municípios</a></nav>
   </header>
@@ -262,7 +262,8 @@ function achata(j){
       cand.push({...c,nm:c.nmu||c.nm,sg,cc:fed?a.nm:sg});
     }
   }
-  return{cand,pst:j.s?.pst??j.pst,hg:j.hg??j.ht,vv:j.v?.vv??j.vv};
+  return{cand,pst:j.s?.pst??j.pst,hg:j.hg??j.ht,vv:j.v?.vv??j.vv,
+    tv:j.v?.tv??j.c?.c??j.e?.c??j.tv,st:j.s?.st,ts:j.s?.ts};
 }
 
 // ===== Projeção proporcional (estimativa) =====
@@ -386,7 +387,11 @@ function desenha(){
   if(fed)hls.push(renderProp(6,fed,"l-fed","ap-fed"));
   if(hls.length){const h=`<div style="display:grid;gap:12px">${hls.join("")}</div>`;if($("hls").dataset.h!==h){$("hls").innerHTML=h;$("hls").dataset.h=h}}
   const ref=gov||sen||est||fed;
-  if(ref){const p=pstOf(ref);$("apCE").textContent=`${br(p,2)}% apurado`;$("progCE").style.width=p+"%";if(ref.hg)$("hg").textContent=String(ref.hg).slice(0,5)}
+  if(ref){const p=pstOf(ref);$("apCE").textContent=`${br(p,2)}% apurado`;$("progCE").style.width=p+"%";if(ref.hg)$("hg").textContent=String(ref.hg).slice(0,5);
+    // Total de votos apurados no CE (comparecimento); se o TSE não informar, soma dos válidos
+    const tv=num(ref.tv)||num(ref.vv);
+    $("totCE").hidden=!tv;
+    $("totCE").innerHTML=`<b>${br(tv)}</b>&nbsp;votos apurados${ref.st&&ref.ts?` · ${br(num(ref.st))} de ${br(num(ref.ts))} seções`:""}`}
 }
 
 // ===== Municípios =====
