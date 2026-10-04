@@ -79,6 +79,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .st .r small{display:block;font:700 11px var(--f);color:var(--orange)}
 .st .bar2{height:8px}
 .msg{color:var(--muted);font-size:13px}
+.log{font:600 11px var(--f);color:var(--muted)}
 .foot{color:var(--muted);font-size:12px;text-align:center;display:grid;gap:4px}
 .foot a{color:var(--orange)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -100,6 +101,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 
   <section class="sec">
     <div class="sh"><h2>Mapa por estado</h2><span class="ap num" id="cnt"></span></div>
+    <div class="log num" id="logBR"></div>
     <div class="legend" id="leg"></div>
     <div class="map" id="map"></div>
     <div class="det" id="det" hidden></div>
@@ -139,7 +141,8 @@ function bomba(){
     const it=Q.fila.shift();
     if(Q.frio[it.u]>Date.now()){it.rej(new Error("HTTP 404"));continue}
     Q.ativos++;NREQ++;
-    fetch(it.u,{cache:"no-cache"}).then(async r=>{
+    const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),20000);
+    fetch(it.u,{cache:"no-cache",signal:ctl.signal}).then(async r=>{
       if(r.status===429||r.status===503){
         const ra=+r.headers.get("Retry-After")||0;
         Q.pausa=Math.min(600,Math.max(90,ra,Q.pausa*2||90));
@@ -149,7 +152,7 @@ function bomba(){
       if(r.status===404)Q.frio[it.u]=Date.now()+300000;
       if(!r.ok)return it.rej(new Error("HTTP "+r.status));
       it.res(await r.json());
-    }).catch(e=>it.rej(e)).finally(()=>{Q.ativos--;Q.timer=setTimeout(bomba,Q.GAP)});
+    }).catch(e=>it.rej(e.name==="AbortError"?new Error("sem resposta em 20 s"):e)).finally(()=>{clearTimeout(to);Q.ativos--;Q.timer=setTimeout(bomba,Q.GAP)});
     break;
   }
   if(Q.fila.length&&Q.ativos<Q.MAX)Q.timer=setTimeout(bomba,Q.GAP);
@@ -231,6 +234,8 @@ function desenha(){
     else{const ab=AB[g.id];$("t-"+g.id).textContent="";$("a-"+g.id).textContent=ab?`${br(ab.p,0)}% apur.`:""}
   }
   $("cnt").textContent=`${com} de 27 estados carregados`;
+  const hora=t=>t?new Date(t).toLocaleTimeString("pt-BR"):"—";
+  $("logBR").textContent=D.br?`Brasil: TSE ${String(D.br.hg||"").slice(0,8)} · baixado ${hora(D.t?.br)} · conferido ${hora(t0||null)}`:"";
   detalhe(A,B);lista(A,B);
 }
 function barra(p){return`<div class="bar2"><i class="ba" style="width:${p.a}%"></i><i class="bb" style="width:${p.b}%"></i></div>`}
@@ -240,6 +245,7 @@ function detalhe(A,B){
   if(!p){el.innerHTML=`<h3>${UFN[sel]}<span>${AB[sel]?br(AB[sel].p,2)+"% apurado":""}</span></h3><div class="msg">Aguardando dados deste estado…</div>`;return}
   const outros=d.cand.slice().sort((a,b)=>b.vap-a.vap).slice(0,4).map(c=>`<span>${esc(c.nm)} <b class="num">${br(c.pvap,2)}%</b></span>`).join(" · ");
   el.innerHTML=`<h3>${UFN[sel]}<span class="num">${br(p.ap,2)}% apurado</span></h3>
+    <div class="log num">TSE ${esc(String(p.hg||"").slice(0,8))} · baixado ${D.t?.[sel]?new Date(D.t[sel]).toLocaleTimeString("pt-BR"):"—"}</div>
     <div class="num"><b class="A">${esc(A.nm)} ${br(p.a,2)}%</b> × <b class="B">${br(p.b,2)}% ${esc(B.nm)}</b></div>${barra(p)}
     <div class="msg">Mais votados no estado: ${outros}</div>`;
 }
@@ -264,12 +270,15 @@ async function ciclo(){
     for(const a of j.abr||[]){const k=String(a.cdabr||"").toLowerCase();AB[k]={st:num(a.s?.st),p:num(a.s?.pst)}}
   }catch(e){errs.push("andamento: "+e.message)}
   const semAb=!Object.keys(AB).length;
-  const precisa=k=>{const st=AB[k]?.st;return !(k==="br"?D.br:D.uf[k])||(st!=null?st!==D.seen[k]:semAb&&nTick%4===1)||nTick%20===0};
+  // Baixa se: nunca baixou, andamento mudou, ou o dado salvo passou do limite (Brasil 90 s, estados 3 min)
+  D.t=D.t||{};
+  const precisa=k=>{const st=AB[k]?.st,lim=k==="br"?90000:180000;
+    return !(k==="br"?D.br:D.uf[k])||(st!=null&&st!==D.seen[k])||Date.now()-(D.t[k]||0)>lim};
   const jobs=[];
-  if(precisa("br"))jobs.push(tse(url("br"),true).then(j=>{D.br=achata(j);D.seen.br=AB.br?.st??-1}).catch(e=>errs.push("BR: "+e.message)));
+  if(precisa("br"))jobs.push(tse(url("br"),true).then(j=>{D.br=achata(j);D.seen.br=AB.br?.st??-1;D.t.br=Date.now()}).catch(e=>errs.push("BR: "+e.message)));
   for(const u of Object.keys(UFN)){
     if(AB[u]&&AB[u].st===0&&D.uf[u])continue;      // estado sem seção apurada: nada a baixar
-    if(precisa(u))jobs.push(tse(url(u)).then(j=>{D.uf[u]=achata(j);D.seen[u]=AB[u]?.st??-1;desenha()}).catch(e=>errs.push(u.toUpperCase()+": "+e.message)));
+    if(precisa(u))jobs.push(tse(url(u)).then(j=>{D.uf[u]=achata(j);D.seen[u]=AB[u]?.st??-1;D.t[u]=Date.now();desenha()}).catch(e=>errs.push(u.toUpperCase()+": "+e.message)));
   }
   await Promise.all(jobs);
   LSset("pan-v1",D);desenha();
