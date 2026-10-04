@@ -150,17 +150,54 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     <div class="seg"><button type="button" class="est" id="b-7" aria-pressed="true">Guilherme · Estadual</button><button type="button" class="fed" id="b-6" aria-pressed="false">Eduardo · Federal</button></div>
     <div class="tools"><input id="q" type="search" placeholder="Buscar município" autocomplete="off"><select id="ord"><option value="v">Mais votos</option><option value="p">% no município</option><option value="a">Mais apurado</option><option value="n">Nome (A–Z)</option></select></div>
     <div class="sum num" id="sum-mun"></div>
-    <div class="list" id="l-mun"><div class="msg">Carregando municípios…</div></div>
+    <button type="button" class="more" id="go-mun">Carregar votos por município</button>
+    <div class="list" id="l-mun"></div>
   </section>
 
-  <div class="foot"><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa.</span></div>
+  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa.</span></div>
 </div>
 
 <script>
 // ===== Configuração =====
 const qs=new URLSearchParams(location.search);
 const BASE=(qs.get("base")||"https://resultados.tse.jus.br/oficial/ele2026").replace(/\/$/,"");
-const REFRESH=+(qs.get("s")||15);           // segundos entre atualizações
+const REFRESH=Math.max(20,+(qs.get("s")||30)); // segundos entre atualizações (mínimo 20)
+
+// ===== Fila única de requisições ao TSE =====
+// No máximo 2 em paralelo, intervalo mínimo entre elas, e pausa automática ao receber 429.
+const Q={fila:[],ativos:0,MAX:2,GAP:300,ate:0,pausa:0,timer:0};
+function tse(u,prio){
+  return new Promise((res,rej)=>{const it={u,res,rej};prio?Q.fila.unshift(it):Q.fila.push(it);bomba()});
+}
+function bomba(){
+  clearTimeout(Q.timer);
+  const agora=Date.now();
+  if(agora<Q.ate){Q.timer=setTimeout(bomba,Q.ate-agora);avisoPausa();return}
+  while(Q.ativos<Q.MAX&&Q.fila.length){
+    const it=Q.fila.shift();Q.ativos++;
+    // "no-cache": o navegador revalida com o TSE (ETag/304) sem baixar de novo o que não mudou
+    fetch(it.u,{cache:"no-cache"}).then(async r=>{
+      if(r.status===429||r.status===503){
+        const ra=+r.headers.get("Retry-After")||0;
+        Q.pausa=Math.min(300,Math.max(30,ra,Q.pausa*2||30));
+        Q.ate=Date.now()+Q.pausa*1000;
+        Q.fila.unshift(it);return;                // volta para a fila e tenta depois da pausa
+      }
+      Q.pausa=0;
+      if(!r.ok)return it.rej(new Error("HTTP "+r.status));
+      it.res(await r.json());
+    }).catch(e=>it.rej(e)).finally(()=>{Q.ativos--;Q.timer=setTimeout(bomba,Q.GAP)});
+    if(Q.MAX>1)break;                             // espaça o início de cada requisição
+  }
+  if(Q.fila.length&&Q.ativos<Q.MAX)Q.timer=setTimeout(bomba,Q.GAP);
+  avisoPausa();
+}
+function avisoPausa(){
+  const el=document.getElementById("pausa");if(!el)return;
+  const s=Math.ceil((Q.ate-Date.now())/1000);
+  el.hidden=!(s>0);if(s>0)el.textContent=`TSE pediu para esperar · retomando em ${s} s`;
+}
+setInterval(avisoPausa,1000);
 const E_FED=6257, E_EST=6259;
 const VAGAS={6:22,7:46};                     // CE: 22 dep. federais, 46 estaduais
 const TRACK={
@@ -206,9 +243,8 @@ const siglaDe=c=>{if(c.sg)return c.sg;const g=grupo(c);const m=g.match(/^([A-Z0-
 const pstOf=j=>num(j.pst??j.psec??j.pesi??0);
 
 async function get(e,uf,c){
-  const r=await fetch(url(e,uf,c)+"?t="+Date.now(),{cache:"no-store"});
-  if(!r.ok)throw new Error(`HTTP ${r.status} em ${uf.toUpperCase()} cargo ${c}`);
-  return achata(await r.json());
+  try{return achata(await tse(url(e,uf,c),true))}
+  catch(x){throw new Error(`${x.message} em ${uf.toUpperCase()} cargo ${c}`)}
 }
 // Formato 2026 (-u.json): carg[] > agr[] (federação) > par[] (partido) > cand[]
 function achata(j){
@@ -301,21 +337,20 @@ function renderProp(cargo,j,id,apId){
 
 // ===== Municípios =====
 const MUN={cargo:7,lista:null,dados:{6:{},7:{}},vis:60,carregando:false,ultimo:{6:0,7:0}};
-const MUN_REFRESH=120000, CONC=8;
+const MUN_REFRESH=300000;                       // municípios: a cada 5 min
+const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
+const LSset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+{const salvo=LS("mun-dados-v1");if(salvo){MUN.dados=salvo.dados||MUN.dados;MUN.ultimo=salvo.ultimo||MUN.ultimo}}
 async function municipios(){
   if(MUN.lista)return MUN.lista;
-  const r=await fetch(`${BASE}/${E_EST}/config/mun-e${pad(E_EST,6)}-cm.json`);
-  if(!r.ok)throw new Error("HTTP "+r.status+" na lista de municípios");
-  const j=await r.json();
+  const j=LS("mun-cfg-v1")||await tse(`${BASE}/${E_EST}/config/mun-e${pad(E_EST,6)}-cm.json`);
+  LSset("mun-cfg-v1",j);
   const ab=(j.abr||[]).find(a=>String(a.cd).toLowerCase()==="ce");
   MUN.lista=(ab?.mu||[]).map(m=>({cd:pad(m.cd,5),nm:m.nm}));
   return MUN.lista;
 }
 async function lerMun(cargo,m){
-  const u=`${BASE}/${E_EST}/dados/ce/ce${m.cd}-c${pad(cargo,4)}-e${pad(E_EST,6)}-u.json?t=${Date.now()}`;
-  const r=await fetch(u,{cache:"no-store"});
-  if(!r.ok)return;
-  const j=achata(await r.json());
+  const j=achata(await tse(`${BASE}/${E_EST}/dados/ce/ce${m.cd}-c${pad(cargo,4)}-e${pad(E_EST,6)}-u.json`));
   const lista=ordena(j),t=TRACK[cargo];
   const i=lista.findIndex(c=>String(c.n)===t.n);
   const c=lista[i];
@@ -328,10 +363,12 @@ async function atualizaMun(forcar){
   MUN.carregando=true;
   try{
     const lista=await municipios();
-    let k=0;
-    const worker=async()=>{while(k<lista.length){const m=lista[k++];try{await lerMun(cargo,m)}catch(e){}if(k%CONC===0&&cargo===MUN.cargo)renderMun()}};
-    await Promise.all(Array.from({length:CONC},worker));
+    // Só busca municípios que ainda não terminaram a apuração (100% não muda mais)
+    const pend=lista.filter(m=>!(MUN.dados[cargo][m.cd]?.ap>=100));
+    let n=0;
+    await Promise.all(pend.map(m=>lerMun(cargo,m).catch(()=>{}).then(()=>{if(++n%10===0&&cargo===MUN.cargo)renderMun()})));
     MUN.ultimo[cargo]=Date.now();
+    LSset("mun-dados-v1",{dados:MUN.dados,ultimo:MUN.ultimo});
   }catch(e){$("l-mun").innerHTML=`<div class="msg">${esc(e.message)}</div>`}
   MUN.carregando=false;
   renderMun();
@@ -359,12 +396,15 @@ function renderMun(){
 for(const c of [6,7])$("b-"+c).addEventListener("click",()=>{
   MUN.cargo=c;MUN.vis=60;
   $("b-6").setAttribute("aria-pressed",c===6);$("b-7").setAttribute("aria-pressed",c===7);
-  renderMun();atualizaMun();
+  renderMun();if(MUN.ativo)atualizaMun();
 });
 $("q").addEventListener("input",renderMun);
 $("ord").addEventListener("change",renderMun);
-atualizaMun(true);
-setInterval(()=>atualizaMun(),30000);
+// Municípios só carregam depois que alguém toca em "Carregar"; depois atualizam a cada 5 min
+MUN.ativo=false;
+$("go-mun").addEventListener("click",()=>{MUN.ativo=true;$("go-mun").hidden=true;atualizaMun()});
+if(Object.keys(MUN.dados[7]).length||Object.keys(MUN.dados[6]).length)renderMun();
+setInterval(()=>{if(MUN.ativo&&!document.hidden)atualizaMun()},60000);
 
 // ===== Ciclo =====
 let t0=0;
@@ -396,7 +436,10 @@ async function ciclo(){
   t0=Date.now();
 }
 setInterval(()=>{const s=Math.max(0,REFRESH-Math.floor((Date.now()-t0)/1000));$("cd").textContent=`atualização em ${s} s`},1000);
-ciclo();setInterval(ciclo,REFRESH*1000);
+let rodando=false;
+async function tick(){if(rodando||document.hidden)return;rodando=true;try{await ciclo()}finally{rodando=false}}
+tick();setInterval(tick,REFRESH*1000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-t0>REFRESH*1000)tick()});
 </script>
 </body>
 </html>
