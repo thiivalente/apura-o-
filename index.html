@@ -167,8 +167,8 @@ const REFRESH=Math.max(20,+(qs.get("s")||30)); // segundos entre atualizações 
 // No máximo 2 em paralelo, intervalo mínimo entre elas, e pausa automática ao receber 429.
 const Q={fila:[],ativos:0,MAX:2,GAP:400,ate:0,pausa:0,timer:0,frio:{}};
 let NREQ=0;                                       // contador de requisições (aparece no rodapé)
-function tse(u,prio){
-  return new Promise((res,rej)=>{const it={u,res,rej};prio?Q.fila.unshift(it):Q.fila.push(it);bomba()});
+function tse(u,prio,tipo="json"){
+  return new Promise((res,rej)=>{const it={u,res,rej,tipo};prio?Q.fila.unshift(it):Q.fila.push(it);bomba()});
 }
 function bomba(){
   clearTimeout(Q.timer);
@@ -183,14 +183,14 @@ function bomba(){
     fetch(it.u,{cache:"no-cache"}).then(async r=>{
       if(r.status===429||r.status===503){
         const ra=+r.headers.get("Retry-After")||0;
-        Q.pausa=Math.min(300,Math.max(30,ra,Q.pausa*2||30));
+        Q.pausa=Math.min(600,Math.max(90,ra,Q.pausa*2||90)); // 90 s, 180 s, 360 s, 600 s
         Q.ate=Date.now()+Q.pausa*1000;
         Q.fila.unshift(it);return;                // volta para a fila e tenta depois da pausa
       }
       Q.pausa=0;
       if(r.status===404)Q.frio[it.u]=Date.now()+300000;
       if(!r.ok)return it.rej(new Error("HTTP "+r.status));
-      it.res(await r.json());
+      it.res(it.tipo==="blob"?await r.blob():await r.json());
     }).catch(e=>it.rej(e)).finally(()=>{Q.ativos--;Q.timer=setTimeout(bomba,Q.GAP)});
     if(Q.MAX>1)break;                             // espaça o início de cada requisição
   }
@@ -200,7 +200,7 @@ function bomba(){
 function avisoPausa(){
   const el=document.getElementById("pausa");if(!el)return;
   const s=Math.ceil((Q.ate-Date.now())/1000);
-  el.hidden=!(s>0);if(s>0)el.textContent=`TSE pediu para esperar · retomando em ${s} s`;
+  el.hidden=!(s>0);if(s>0)el.textContent=`O TSE bloqueou temporariamente esta conexão por excesso de acessos. Mostrando os últimos dados salvos · nova tentativa em ${s} s. Dica: trocar Wi-Fi ↔ dados móveis muda o IP.`;
 }
 setInterval(avisoPausa,1000);
 const E_FED=6257, E_EST=6259;
@@ -228,9 +228,14 @@ async function carregaFoto(u){
   try{
     const cache="caches" in window?await caches.open("fotos-tse-2026"):null;
     let r=cache&&await cache.match(u);
-    if(!r){r=await fetch(u);if(!r.ok)throw 0;if(cache)await cache.put(u,r.clone())}
-    src=URL.createObjectURL(await r.blob());
-  }catch(e){}
+    let b;
+    if(r)b=await r.blob();
+    else{                                          // foto nova: passa pela mesma fila, por último
+      b=await tse(u,false,"blob");
+      if(cache)await cache.put(u,new Response(b,{headers:{"Content-Type":b.type||"image/jpeg"}}));
+    }
+    src=URL.createObjectURL(b);
+  }catch(e){FOTO.set(u,"");return}                 // sem foto: fica a inicial até recarregar a página
   FOTO.set(u,src);
   document.querySelectorAll("img[data-f]").forEach(i=>{if(i.dataset.f!==u)return;i.src=src;i.hidden=false;i.nextSibling&&i.nextSibling.remove()});
 }
