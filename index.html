@@ -165,7 +165,8 @@ const REFRESH=Math.max(20,+(qs.get("s")||30)); // segundos entre atualizações 
 
 // ===== Fila única de requisições ao TSE =====
 // No máximo 2 em paralelo, intervalo mínimo entre elas, e pausa automática ao receber 429.
-const Q={fila:[],ativos:0,MAX:2,GAP:300,ate:0,pausa:0,timer:0};
+const Q={fila:[],ativos:0,MAX:2,GAP:400,ate:0,pausa:0,timer:0,frio:{}};
+let NREQ=0;                                       // contador de requisições (aparece no rodapé)
 function tse(u,prio){
   return new Promise((res,rej)=>{const it={u,res,rej};prio?Q.fila.unshift(it):Q.fila.push(it);bomba()});
 }
@@ -174,7 +175,10 @@ function bomba(){
   const agora=Date.now();
   if(agora<Q.ate){Q.timer=setTimeout(bomba,Q.ate-agora);avisoPausa();return}
   while(Q.ativos<Q.MAX&&Q.fila.length){
-    const it=Q.fila.shift();Q.ativos++;
+    const it=Q.fila.shift();
+    // Arquivo que deu 404 há pouco não é pedido de novo por 5 min (muitos 404 seguidos fazem o TSE bloquear)
+    if(Q.frio[it.u]>Date.now()){it.rej(new Error("HTTP 404"));continue}
+    Q.ativos++;NREQ++;
     // "no-cache": o navegador revalida com o TSE (ETag/304) sem baixar de novo o que não mudou
     fetch(it.u,{cache:"no-cache"}).then(async r=>{
       if(r.status===429||r.status===503){
@@ -184,6 +188,7 @@ function bomba(){
         Q.fila.unshift(it);return;                // volta para a fila e tenta depois da pausa
       }
       Q.pausa=0;
+      if(r.status===404)Q.frio[it.u]=Date.now()+300000;
       if(!r.ok)return it.rej(new Error("HTTP "+r.status));
       it.res(await r.json());
     }).catch(e=>it.rej(e)).finally(()=>{Q.ativos--;Q.timer=setTimeout(bomba,Q.GAP)});
@@ -335,12 +340,61 @@ function renderProp(cargo,j,id,apId){
   return hl;
 }
 
-// ===== Municípios =====
-const MUN={cargo:7,lista:null,dados:{6:{},7:{}},vis:60,carregando:false,ultimo:{6:0,7:0}};
-const MUN_REFRESH=300000;                       // municípios: a cada 5 min
+// ===== Memória local (o que já foi baixado aparece na hora ao abrir) =====
 const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
 const LSset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
-{const salvo=LS("mun-dados-v1");if(salvo){MUN.dados=salvo.dados||MUN.dados;MUN.ultimo=salvo.ultimo||MUN.ultimo}}
+const D=LS("apur-v2")||{arq:{},seen:{}};       // arq: últimos JSONs; seen: nº de seções totalizadas quando foram baixados
+const salva=()=>LSset("apur-v2",D);
+
+// ===== Detecção de mudança =====
+// O TSE publica um arquivo pequeno de andamento por eleição (-ab.json) com as seções totalizadas
+// de cada abrangência. Só baixamos o arquivo pesado de um cargo quando esse número muda.
+const abUrl=(e,uf)=>`${BASE}/${e}/dados/${uf}/${uf}-e${pad(e,6)}-ab.json`;
+function lerAb(j){const m={};for(const a of j?.abr||[]){const k=String(a.cdabr||a.cd||"").toLowerCase();m[k]={st:num(a.s?.st),ts:num(a.s?.ts),p:num(a.s?.pst)}}return m}
+const AB={fed:null,est:null,mun:null,falhaAb:0};
+
+const ARQS=[ // [chave, eleição, abrangência, cargo, de onde vem o andamento]
+  ["pBR",E_FED,"br",1,"fed"],["pCE",E_FED,"ce",1,"fed"],["gov",E_EST,"ce",3,"est"],
+  ["sen",E_EST,"ce",5,"est"],["fed",E_EST,"ce",6,"est"],["est",E_EST,"ce",7,"est"]];
+
+let t0=0,nTick=0,ultimaHg="";
+async function ciclo(){
+  nTick++;
+  const errs=[];
+  const [aF,aE]=await Promise.all([tse(abUrl(E_FED,"br"),true).catch(e=>null),tse(abUrl(E_EST,"br"),true).catch(e=>null)]);
+  if(aF)AB.fed=lerAb(aF); if(aE)AB.est=lerAb(aE);
+  const semAb=!aF&&!aE;
+  await Promise.all(ARQS.map(async([k,e,uf,c,fonte])=>{
+    const st=AB[fonte]?.[uf]?.st;
+    // Baixa se: nunca baixou, andamento mudou, ou (sem arquivo de andamento) a cada 4 ciclos
+    const precisa=!D.arq[k]||(st!=null?st!==D.seen[k]:(semAb?nTick%4===1:false))||nTick%20===0;
+    if(!precisa)return;
+    try{D.arq[k]=await get(e,uf,c);D.seen[k]=st??-1}catch(x){errs.push(x.message)}
+  }));
+  salva();desenha();
+  $("err").textContent=errs.length?`Falha em ${errs.length} arquivo(s) (${errs[0]}).`:"";
+  $("dot").className="dot "+(errs.length===ARQS.length?"err":"live");
+  t0=Date.now();
+}
+function desenha(){
+  const {pBR,pCE,gov,sen,fed,est}=D.arq;
+  if(pBR){const ce={};if(pCE)for(const c of pCE.cand||[])ce[norm(c.nm)]=c.pvap;renderMaj("l-pres","ap-pres",pBR,{e:E_FED,uf:"br",ce:pCE?ce:null})}
+  if(gov)renderMaj("l-gov","ap-gov",gov,{e:E_EST,uf:"ce"});
+  if(sen)renderMaj("l-sen","ap-sen",sen,{e:E_EST,uf:"ce",vagas:2});
+  const hls=[];
+  if(est)hls.push(renderProp(7,est,"l-est","ap-est"));
+  if(fed)hls.push(renderProp(6,fed,"l-fed","ap-fed"));
+  if(hls.length){const h=`<div style="display:grid;gap:12px">${hls.join("")}</div>`;if($("hls").dataset.h!==h){$("hls").innerHTML=h;$("hls").dataset.h=h}}
+  const ref=gov||sen||est||fed;
+  if(ref){const p=pstOf(ref);$("apCE").textContent=`${br(p,2)}% apurado`;$("progCE").style.width=p+"%";if(ref.hg)$("hg").textContent=String(ref.hg).slice(0,5)}
+}
+
+// ===== Municípios =====
+// Usa o andamento por município (ce-e006259-ab.json, 1 arquivo) e só baixa o arquivo de um município
+// quando ele teve seções novas totalizadas. Município sem seção apurada não é baixado.
+const MUN=LS("mun-v2")||{dados:{6:{},7:{}},seen:{6:{},7:{}}};
+Object.assign(MUN,{cargo:7,lista:null,vis:60,carregando:false,ativo:false,ultimo:0});
+const MUN_REFRESH=120000;
 async function municipios(){
   if(MUN.lista)return MUN.lista;
   const j=LS("mun-cfg-v1")||await tse(`${BASE}/${E_EST}/config/mun-e${pad(E_EST,6)}-cm.json`);
@@ -349,6 +403,10 @@ async function municipios(){
   MUN.lista=(ab?.mu||[]).map(m=>({cd:pad(m.cd,5),nm:m.nm}));
   return MUN.lista;
 }
+function andamentoMun(m){
+  const a=AB.mun;if(!a)return null;
+  return a["ce"+m.cd]||a[m.cd]||a[String(+m.cd)]||null;
+}
 async function lerMun(cargo,m){
   const j=achata(await tse(`${BASE}/${E_EST}/dados/ce/ce${m.cd}-c${pad(cargo,4)}-e${pad(E_EST,6)}-u.json`));
   const lista=ordena(j),t=TRACK[cargo];
@@ -356,37 +414,42 @@ async function lerMun(cargo,m){
   const c=lista[i];
   MUN.dados[cargo][m.cd]={nm:m.nm,v:c?num(c.vap):0,p:c?num(c.pvap):0,pos:i>=0?i+1:null,tot:lista.length,ap:pstOf(j)};
 }
-async function atualizaMun(forcar){
-  const cargo=MUN.cargo;
+async function atualizaMun(){
   if(MUN.carregando)return;
-  if(!forcar&&Date.now()-MUN.ultimo[cargo]<MUN_REFRESH)return renderMun();
   MUN.carregando=true;
+  const cargo=MUN.cargo;
   try{
     const lista=await municipios();
-    // Só busca municípios que ainda não terminaram a apuração (100% não muda mais)
-    const pend=lista.filter(m=>!(MUN.dados[cargo][m.cd]?.ap>=100));
+    try{AB.mun=lerAb(await tse(abUrl(E_EST,"ce"),true))}catch(e){AB.mun=null}
+    const pend=[];
+    for(const m of lista){
+      const a=andamentoMun(m),d=MUN.dados[cargo][m.cd];
+      if(a){
+        if(a.st===0){MUN.dados[cargo][m.cd]={nm:m.nm,v:0,p:0,pos:null,tot:0,ap:0};continue}
+        if(a.st!==MUN.seen[cargo][m.cd])pend.push([m,a.st]);
+      }else if(!(d?.ap>=100)&&(!d||Date.now()-MUN.ultimo>600000))pend.push([m,null]); // sem andamento: no máx. a cada 10 min
+    }
     let n=0;
-    await Promise.all(pend.map(m=>lerMun(cargo,m).catch(()=>{}).then(()=>{if(++n%10===0&&cargo===MUN.cargo)renderMun()})));
-    MUN.ultimo[cargo]=Date.now();
-    LSset("mun-dados-v1",{dados:MUN.dados,ultimo:MUN.ultimo});
+    await Promise.all(pend.map(([m,st])=>lerMun(cargo,m).then(()=>{if(st!=null)MUN.seen[cargo][m.cd]=st}).catch(()=>{}).then(()=>{if(++n%10===0&&cargo===MUN.cargo)renderMun()})));
+    MUN.ultimo=Date.now();
+    LSset("mun-v2",{dados:MUN.dados,seen:MUN.seen});
   }catch(e){$("l-mun").innerHTML=`<div class="msg">${esc(e.message)}</div>`}
   MUN.carregando=false;
   renderMun();
   if(cargo!==MUN.cargo)atualizaMun();
 }
 function renderMun(){
-  const cargo=MUN.cargo,d=MUN.dados[cargo],tot=MUN.lista?MUN.lista.length:0;
+  const cargo=MUN.cargo,d=MUN.dados[cargo],tot=MUN.lista?MUN.lista.length:184;
   const q=norm($("q").value.trim()),ord=$("ord").value;
   let rows=Object.values(d);
+  if(!rows.length){$("sum-mun").innerHTML="";$("l-mun").innerHTML="";return}
   const votos=rows.reduce((a,r)=>a+r.v,0),com=rows.filter(r=>r.v>0).length;
-  const apMed=rows.length?rows.reduce((a,r)=>a+r.ap,0)/rows.length:0;
-  $("ap-mun").textContent=rows.length?`${br(apMed,2)}% apurado (média)`:"";
-  $("sum-mun").innerHTML=`<span><b>${br(votos)}</b> votos somados</span><span>votado em <b>${com}</b> de ${tot||"…"} municípios</span>${rows.length<tot?`<span>carregando ${rows.length}/${tot}…</span>`:""}`;
+  const apMed=rows.reduce((a,r)=>a+r.ap,0)/rows.length;
+  $("ap-mun").textContent=`${br(apMed,2)}% apurado (média)`;
+  $("sum-mun").innerHTML=`<span><b>${br(votos)}</b> votos somados</span><span>votado em <b>${com}</b> de ${tot} municípios</span>${MUN.carregando?`<span>atualizando…</span>`:""}`;
   if(q)rows=rows.filter(r=>norm(r.nm).includes(q));
-  const f={v:(a,b)=>b.v-a.v,p:(a,b)=>b.p-a.p,a:(a,b)=>b.ap-a.ap,n:(a,b)=>a.nm.localeCompare(b.nm,"pt-BR")}[ord];
-  rows.sort(f);
-  const vis=rows.slice(0,MUN.vis);
-  $("l-mun").innerHTML=vis.map(r=>`<div class="mu"><div class="mn">${esc(r.nm)}</div><div class="mv num">${br(r.v)}</div>
+  rows.sort({v:(a,b)=>b.v-a.v,p:(a,b)=>b.p-a.p,a:(a,b)=>b.ap-a.ap,n:(a,b)=>a.nm.localeCompare(b.nm,"pt-BR")}[$("ord").value]);
+  $("l-mun").innerHTML=rows.slice(0,MUN.vis).map(r=>`<div class="mu"><div class="mn">${esc(r.nm)}</div><div class="mv num">${br(r.v)}</div>
     <div class="md num">${br(r.p,2)}% dos válidos${r.pos?` · ${r.pos}º de ${r.tot}`:""}</div><div class="mp num">${br(r.ap,2)}% apurado</div>
     <div class="mb"><i style="width:${Math.min(100,r.ap)}%"></i></div></div>`).join("")
     +(rows.length>MUN.vis?`<button type="button" class="more" id="mais">Ver mais ${rows.length-MUN.vis} municípios</button>`:"")
@@ -400,46 +463,17 @@ for(const c of [6,7])$("b-"+c).addEventListener("click",()=>{
 });
 $("q").addEventListener("input",renderMun);
 $("ord").addEventListener("change",renderMun);
-// Municípios só carregam depois que alguém toca em "Carregar"; depois atualizam a cada 5 min
-MUN.ativo=false;
 $("go-mun").addEventListener("click",()=>{MUN.ativo=true;$("go-mun").hidden=true;atualizaMun()});
-if(Object.keys(MUN.dados[7]).length||Object.keys(MUN.dados[6]).length)renderMun();
-setInterval(()=>{if(MUN.ativo&&!document.hidden)atualizaMun()},60000);
+renderMun();
+setInterval(()=>{if(MUN.ativo&&!document.hidden&&Date.now()-MUN.ultimo>=MUN_REFRESH)atualizaMun()},15000);
 
-// ===== Ciclo =====
-let t0=0;
-async function ciclo(){
-  const errs=[];
-  const pega=(e,uf,c)=>get(e,uf,c).catch(x=>{errs.push(x.message);return null});
-  const [pBR,pCE,gov,sen,fed,est]=await Promise.all([
-    pega(E_FED,"br",1),pega(E_FED,"ce",1),pega(E_EST,"ce",3),pega(E_EST,"ce",5),pega(E_EST,"ce",6),pega(E_EST,"ce",7)]);
-
-  if(pBR){
-    const ce={};if(pCE)for(const c of pCE.cand||[])ce[norm(c.nm)]=c.pvap;
-    renderMaj("l-pres","ap-pres",pBR,{e:E_FED,uf:"br",ce:pCE?ce:null});
-  }
-  if(gov)renderMaj("l-gov","ap-gov",gov,{e:E_EST,uf:"ce"});
-  if(sen)renderMaj("l-sen","ap-sen",sen,{e:E_EST,uf:"ce",vagas:2});
-  const hls=[];
-  if(est)hls.push(renderProp(7,est,"l-est","ap-est"));
-  if(fed)hls.push(renderProp(6,fed,"l-fed","ap-fed"));
-  if(hls.length)$("hls").innerHTML=`<div style="display:grid;gap:12px">${hls.join("")}</div>`;
-
-  const ref=gov||sen||est||fed;
-  if(ref){
-    const p=pstOf(ref);
-    $("apCE").textContent=`${br(p,2)}% apurado`;$("progCE").style.width=p+"%";
-    if(ref.hg)$("hg").textContent=String(ref.hg).slice(0,5);
-  }
-  $("dot").className="dot "+(errs.length===6?"err":"live");
-  $("err").textContent=errs.length?`Falha ao ler ${errs.length} de 6 arquivos do TSE (${errs[0]}).`:"";
-  t0=Date.now();
-}
-setInterval(()=>{const s=Math.max(0,REFRESH-Math.floor((Date.now()-t0)/1000));$("cd").textContent=`atualização em ${s} s`},1000);
+// ===== Início =====
+desenha();                                        // mostra na hora o que ficou salvo da última visita
 let rodando=false;
 async function tick(){if(rodando||document.hidden)return;rodando=true;try{await ciclo()}finally{rodando=false}}
 tick();setInterval(tick,REFRESH*1000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-t0>REFRESH*1000)tick()});
+setInterval(()=>{const s=Math.max(0,REFRESH-Math.floor((Date.now()-t0)/1000));$("cd").textContent=`atualização em ${s} s · ${NREQ} req`},1000);
 </script>
 </body>
 </html>
