@@ -107,6 +107,14 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .turno{font:800 13px var(--f);padding:8px 10px;border-radius:10px;background:rgba(250,204,21,.14);color:var(--yellow)}
 .turno.ok{background:rgba(74,222,128,.14);color:#4ade80}
 .turno.muted{background:var(--card2);color:var(--muted);font-weight:600}
+.ptab{width:100%;border-collapse:collapse;font:600 13px var(--f)}
+.ptab th{font:800 10px var(--f);letter-spacing:.06em;color:var(--muted);text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)}
+.ptab th:first-child,.ptab td:first-child{text-align:left}
+.ptab td{padding:6px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.ptab td:first-child{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
+.ptab td.t{font:900 15px var(--f);color:var(--yellow)}
+.scroll{overflow-x:auto}
+.fase{font:800 10px var(--f);color:var(--muted);letter-spacing:.04em}
 /* Municípios */
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg button{flex:1 1 140px;font:800 13px var(--f);padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--fg);text-transform:uppercase}
@@ -137,7 +145,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     </div>
     <div class="hrow" style="align-items:center;justify-content:flex-start"><span class="big num" id="apCE">0,00% apurado</span><button type="button" class="refresh" id="agora">↻ Atualizar agora</button><span class="chip num" id="totCE" hidden></span></div>
     <div class="prog"><i id="progCE"></i></div>
-    <nav class="tabs"><a href="#deputados">📋 Deputados</a><a href="#governador">🗺️ Governo</a><a href="#senador">🏛️ Senado</a><a href="#presidente">🇧🇷 Presidente</a><a href="#municipios">📍 Municípios</a><a href="./panorama.html">🇧🇷 Panorama nacional</a><a href="./previsao.html">📈 Previsão</a></nav>
+    <nav class="tabs"><a href="#deputados">📋 Deputados</a><a href="#governador">🗺️ Governo</a><a href="#senador">🏛️ Senado</a><a href="#presidente">🇧🇷 Presidente</a><a href="#cadeiras">🪑 Cadeiras</a><a href="#municipios">📍 Municípios</a><a href="./panorama.html">🇧🇷 Panorama nacional</a><a href="./previsao.html">📈 Previsão</a></nav>
   </header>
 
   <div id="hls"></div>
@@ -156,6 +164,15 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 
   <section class="sec"><div class="sh"><h2>Dep. Federal · CE</h2><span class="ap num" id="ap-fed"></span></div><div id="log-fed"></div>
     <div class="list" id="l-fed"><div class="msg">Carregando…</div></div></section>
+
+  <section class="sec" id="cadeiras"><div class="sh"><h2>Cadeiras</h2><span class="ap num" id="ap-cad"></span></div>
+    <div class="seg"><button type="button" class="fed" id="cb-6" aria-pressed="true">Dep. Federal · 22</button><button type="button" class="est" id="cb-7" aria-pressed="false">Dep. Estadual · 46</button></div>
+    <div class="msg num" id="cad-qe"></div>
+    <div id="cad-part"></div>
+    <div class="sh"><h2 style="font-size:14px">Quem ocupa as vagas agora</h2></div>
+    <div class="list" id="cad-lista"></div>
+    <div class="msg">Distribuição pela regra oficial com os votos apurados até agora: quociente partidário, depois sobras pela maior média (partido com 80% do quociente e candidato com 20%). <b>✓ ELEITO</b> = garantido; os demais são provisórios e podem mudar.</div>
+  </section>
 
   <section class="sec" id="municipios"><div class="sh"><h2>Votos por município</h2><span class="ap num" id="ap-mun"></span></div>
     <div class="seg"><button type="button" class="est" id="b-7" aria-pressed="true">Guilherme · Estadual</button><button type="button" class="fed" id="b-6" aria-pressed="false">Eduardo · Federal</button></div>
@@ -368,33 +385,82 @@ const selo=f=>f==="t2"||f==="t2TSE"
   :`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}</span>`;
 
 // ===== Projeção proporcional (estimativa) =====
-function projecao(j,c,vagas){
-  const lista=ordena(j);
-  const vv=num(j.vv)||lista.reduce((s,x)=>s+num(x.vap),0);
-  if(!vv)return null;
-  const qe=vv/vagas;
-  const g={};
-  for(const x of lista){const k=grupo(x);(g[k]=g[k]||{v:0,c:[]}).v+=num(x.vap);g[k].c.push(x)}
-  const cad={};
-  for(const k in g)cad[k]=Math.floor(g[k].v/qe);
-  let rest=vagas-Object.values(cad).reduce((a,b)=>a+b,0);
-  const aptos=Object.keys(g).filter(k=>g[k].v>=0.8*qe);
-  while(rest>0&&aptos.length){
+// Distribuição oficial das cadeiras (Código Eleitoral arts. 106–109, Lei 14.211/2021 e STF ADI 7228):
+// 1) QE = válidos ÷ vagas (arredonda: fração > 0,5 sobe). Votos do partido/federação = nominais + legenda.
+// 2) QP = floor(votos ÷ QE): cadeiras para candidatos com ≥ 10% do QE, em ordem de votos.
+// 3) Sobras: maior média (votos ÷ (cadeiras+1)) entre partidos com ≥ 80% do QE e candidato com ≥ 20% do QE.
+// 4) Se ainda sobrar vaga sem ninguém que cumpra as exigências, todos os partidos disputam pelas médias.
+function distribuir(j,vagas){
+  const lista=ordena(j),vv=num(j.vv)||0;
+  if(!vv||!vagas)return null;
+  const qe=Math.round(vv/vagas),g={};
+  for(const c of lista){const k=grupo(c);(g[k]=g[k]||{k,v:num((j.leg||{})[k]),leg:num((j.leg||{})[k]),c:[],eleitos:[],qp:0,sob:0}).v+=num(c.vap);g[k].c.push(c)}
+  for(const k in j.leg||{})if(!g[k]&&num(j.leg[k]))g[k]={k,v:num(j.leg[k]),leg:num(j.leg[k]),c:[],eleitos:[],qp:0,sob:0};
+  const G=Object.values(g),cad=[];
+  const prox=(P,min)=>P.c.find(c=>!P.eleitos.includes(c)&&num(c.vap)>=min);
+  const ocupa=(P,c,fase)=>{P.eleitos.push(c);cad.push({c,P,fase})};
+  // Fase 1: quociente partidário
+  for(const P of G){const qp=Math.floor(P.v/qe);for(let i=0;i<qp;i++){const c=prox(P,0.1*qe);if(!c)break;ocupa(P,c,"QP");P.qp++}}
+  // Fase 2: sobras com exigências de 80% / 20%
+  while(cad.length<vagas){
     let best=null,bm=-1;
-    for(const k of aptos){const m=g[k].v/(cad[k]+1);if(m>bm){bm=m;best=k}}
-    cad[best]++;rest--;
+    for(const P of G){if(P.v<0.8*qe||!prox(P,0.2*qe))continue;const m=P.v/(P.eleitos.length+1);if(m>bm||(m===bm&&P.v>best.v)){bm=m;best=P}}
+    if(!best)break;ocupa(best,prox(best,0.2*qe),"média");best.sob++;
   }
-  const k=grupo(c),G=g[k],s=cad[k]||0;
-  const rank=G.c.findIndex(x=>x===c)+1;
-  const frac=Math.max(pstOf(j)/100,0.01);
-  let dentro=s>0&&rank<=s, faltam=0;
-  if(!dentro){
-    if(s>0)faltam=num(G.c[s-1].vap)-num(c.vap)+1;
-    else faltam=Math.max(0,0.8*qe-G.v);
-    faltam=Math.round(faltam/frac);
+  // Fase 3: sem exigências
+  while(cad.length<vagas){
+    let best=null,bm=-1;
+    for(const P of G){if(!prox(P,0))continue;const m=P.v/(P.eleitos.length+1);if(m>bm){bm=m;best=P}}
+    if(!best)break;ocupa(best,prox(best,0),"média");best.sob++;
   }
-  return{dentro,faltam,cad:s,grupo:grupoCurto(k)||siglaDe(c),semPartido:s===0};
+  // Menor média que ainda levou cadeira (referência para "quanto falta")
+  const ultMedia=Math.min(...cad.filter(x=>x.fase==="média").map(x=>x.P.v/x.P.eleitos.length),Infinity);
+  return{qe,vv,vagas,G:G.sort((a,b)=>b.eleitos.length-a.eleitos.length||b.v-a.v),cad,ultMedia};
 }
+function projecao(j,c,vagas){
+  const d=distribuir(j,vagas);if(!d)return null;
+  const P=d.G.find(x=>x.c.includes(c));if(!P)return null;
+  const dentro=P.eleitos.includes(c),s=P.eleitos.length;
+  let faltam=0,folga=0;
+  if(dentro){
+    const fora=P.c.find(x=>!P.eleitos.includes(x));        // 1º do partido fora da lista
+    folga=fora?num(c.vap)-num(fora.vap):0;
+  }else if(s>0){
+    faltam=num(P.eleitos[s-1].vap)-num(c.vap)+1;           // passar o último eleito do próprio partido
+  }else{
+    const ate80=Math.max(0,0.8*d.qe-P.v),media=isFinite(d.ultMedia)?Math.max(0,d.ultMedia-P.v+1):Infinity;
+    faltam=Math.min(Math.max(0,d.qe-P.v),Math.max(ate80,media));
+  }
+  // Escala para o fim da apuração supondo o mesmo ritmo (estimativa)
+  const frac=Math.max(pstOf(j)/100,0.01);
+  return{dentro,faltam:Math.round(faltam/frac),folga,cad:s,grupo:grupoCurto(P.k)||siglaDe(c),d};
+}
+
+// ===== Quadro de cadeiras =====
+let CADC=6;
+function renderCadeiras(){
+  const j=D.arq?.[CADC===6?"fed":"est"];
+  if(!j){$("cad-lista").innerHTML='<div class="msg">Carregando…</div>';return}
+  const vagas=j.nv||VAGAS[CADC],d=distribuir(j,vagas),el=eleitos(j,"prop",vagas),t=TRACK[CADC];
+  if(!d){$("cad-lista").innerHTML='<div class="msg">Aguardando votos válidos do TSE…</div>';return}
+  $("ap-cad").textContent=`${br(pstOf(j),2)}% apurado`;
+  $("cad-qe").innerHTML=`Quociente eleitoral agora: <b>${br(d.qe)}</b> votos · 10% = ${br(d.qe*0.1)} · 20% = ${br(d.qe*0.2)} · ${br(d.vv)} válidos ÷ ${vagas} vagas`;
+  const ps=d.G.filter(P=>P.eleitos.length||P.v>=0.5*d.qe);
+  $("cad-part").innerHTML=`<div class="scroll"><table class="ptab"><thead><tr><th>Partido / federação</th><th>Votos</th><th>Legenda</th><th>QP</th><th>Sobras</th><th>Total</th></tr></thead><tbody>${
+    ps.map(P=>`<tr><td title="${esc(P.k)}">${esc(grupoCurto(P.k))}</td><td>${br(P.v)}</td><td>${br(P.leg)}</td><td>${P.qp}</td><td>${P.sob}</td><td class="t">${P.eleitos.length}</td></tr>`).join("")
+  }</tbody></table></div>`;
+  const pos=new Map(ordena(j).map((c,i)=>[c,i]));
+  $("cad-lista").innerHTML=d.cad.slice().sort((a,b)=>num(b.c.vap)-num(a.c.vap)).map((x,i)=>{
+    const c=x.c,ef=el.get(String(c.n)),tc=String(c.n)===t.n?" "+t.cls:"";
+    return`<div class="row sq${ef?" won":""}${tc}"><span class="p">${i+1}</span><div class="av">${av(foto(E_EST,"ce",c),c.nm)}</div>
+      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))} · ${esc(c.n)} · <span class="fase">${x.fase==="QP"?"QUOCIENTE":"SOBRAS"} · ${pos.get(c)+1}º em votos</span></span></div>
+      <div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div></div>`}).join("");
+  // Candidato acompanhado fora da lista
+  const tc=ordena(j).find(c=>String(c.n)===t.n);
+  if(tc&&!d.cad.some(x=>x.c===tc)){const p=projecao(j,tc,vagas);
+    $("cad-lista").innerHTML+=`<div class="gap"></div><div class="proj">${esc(tc.nm)} está fora agora${p?` · ${esc(p.grupo)} tem ${p.cad} cadeira${p.cad==1?"":"s"} · faltam ~${br(p.faltam)} votos até o fim`:""}</div>`}
+}
+for(const c of [6,7])$("cb-"+c).addEventListener("click",()=>{CADC=c;$("cb-6").setAttribute("aria-pressed",c===6);$("cb-7").setAttribute("aria-pressed",c===7);renderCadeiras()});
 
 // ===== Renderização =====
 const VER={6:7,7:7};                              // quantos deputados aparecem em cada lista
@@ -453,12 +519,12 @@ function renderProp(cargo,j,id,apId){
   if(resta>0||ver>7)h+=`<div class="tools">${resta>0?`<button type="button" class="more" data-ver="${cargo}" data-d="20">Ver mais ${Math.min(20,resta)} de ${resta}</button>`:""}${ver>7?`<button type="button" class="more" data-ver="${cargo}" data-d="0">Ver menos</button>`:""}</div>`;
   let hl="";
   if(i>=0){
-    const c=lista[i],p=projecao(j,c,VAGAS[cargo]);
+    const c=lista[i],p=projecao(j,c,j.nv||VAGAS[cargo]);
     if(i>=ver&&!el.has(String(c.n)))h+=`<div class="gap"></div>`+linhas([c],{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,start:i,el});
     if(el.has(String(c.n)))h+=`<div class="proj ok">✓ ELEITO${el.get(String(c.n))==="TSE"?" · declarado pelo TSE":" · garantido matematicamente"}</div>`;
     else if(p)h+=p.dentro
-      ?`<div class="proj ok">📈 Projeção final: DENTRO<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"}</small></div>`
-      :`<div class="proj">📈 Projeção final: FORA · faltam ~${br(p.faltam)} votos<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"} · agora: fora</small></div>`;
+      ?`<div class="proj ok">📈 Projeção: DENTRO<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"}${p.folga>0?` · folga de ${br(p.folga)} votos sobre o 1º de fora do partido`:""}</small></div>`
+      :`<div class="proj">📈 Projeção: FORA · faltam ~${br(p.faltam)} votos até o fim<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"} · agora: fora</small></div>`;
     const st=el.has(String(c.n))||oficial(c)?'<span class="st ok">ELEITO</span>':norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
     hl=`<div class="hl"><div class="ph">${av(foto(E_EST,"ce",c),c.nm)}</div><div class="info">
       <div class="lbl">${t.lbl}</div><div class="nm">${t.html}</div>
@@ -521,6 +587,7 @@ async function ciclo(){
   t0=Date.now();
 }
 function desenha(){
+  try{renderCadeiras()}catch(e){console.error(e)}
   for(const k of ["pBR","gov","sen","est","fed"]){const el=$("log-"+k);if(el)el.innerHTML=logCat(k)}
   const {pBR,pCE,gov,sen,fed,est}=D.arq;
   if(pBR){const ce={};if(pCE)for(const c of pCE.cand||[])ce[norm(c.nm)]=c.pvap;renderMaj("l-pres","ap-pres",pBR,{e:E_FED,uf:"br",ce:pCE?ce:null})}
