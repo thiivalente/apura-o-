@@ -77,7 +77,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .av img{width:100%;height:100%;object-fit:cover}
 .row .n{min-width:0}
 .row .n b{display:block;font:700 14px var(--f);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .n span{display:block;font:600 11px var(--f);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .n>span:not(.tg){display:block;font:600 11px var(--f);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .v{text-align:right;font:900 17px var(--f)}
 .row .v small{display:block;font:600 11px var(--f);color:var(--muted)}
 .row .ce{font:700 12px var(--f);color:var(--muted);margin-right:8px}
@@ -100,12 +100,15 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .log.old{color:#fca5a5}
 .refresh{font:800 12px var(--f);border:0;border-radius:99px;padding:6px 12px;background:#fff;color:var(--orange2)}
 .refresh:disabled{opacity:.5}
-.eleito{display:inline-block;font:900 10px var(--f);letter-spacing:.06em;color:#052e16;background:#4ade80;border-radius:5px;padding:1px 5px;vertical-align:1px}
-.row.won{border-color:#4ade80}
-.row.t2row{border-color:var(--yellow)}
-.eleito.vaga{background:var(--orange);color:#fff}
-.row.vagarow{border-color:var(--orange)}
-.eleito.t2{background:var(--yellow);color:#2a1a00}
+/* Etiquetas: fundo escuro sólido + borda e texto claros, legíveis sobre qualquer fundo de linha */
+.tg{display:block;margin:3px 0 2px}
+.eleito{display:inline-flex;align-items:center;gap:4px;font:900 11px/1.2 var(--f);letter-spacing:.04em;white-space:nowrap;
+  color:#86efac;background:#04130a;border:1.5px solid #22c55e;border-radius:6px;padding:2px 7px}
+.eleito.vaga{color:#fed7aa;background:#1f0d02;border-color:#fb923c}
+.eleito.t2{color:#fef08a;background:#1c1600;border-color:#facc15}
+.row.won{border-color:#22c55e;box-shadow:inset 3px 0 0 #22c55e}
+.row.vagarow{border-color:#fb923c;box-shadow:inset 3px 0 0 #fb923c}
+.row.t2row{border-color:#facc15;box-shadow:inset 3px 0 0 #facc15}
 .turno{font:800 13px var(--f);padding:8px 10px;border-radius:10px;background:rgba(250,204,21,.14);color:var(--yellow)}
 .turno.ok{background:rgba(74,222,128,.14);color:#4ade80}
 .turno.muted{background:var(--card2);color:var(--muted);font-weight:600}
@@ -464,7 +467,7 @@ function renderCadeiras(){
   $("cad-lista").innerHTML=d.cad.slice().sort((a,b)=>num(b.c.vap)-num(a.c.vap)).map((x,i)=>{
     const c=x.c,ef=el.get(String(c.n)),tc=String(c.n)===t.n?" "+t.cls:"";
     return`<div class="row sq${ef==="vaga"?" vagarow":ef?" won":""}${tc}"><span class="p">${i+1}</span><div class="av">${av(foto(E_EST,"ce",c),c.nm)}</div>
-      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef,el?.vg?.get(String(c.n)),el?.vagas)+" ":""}${esc(siglaDe(c))} · ${esc(c.n)} · <span class="fase">${x.fase==="QP"?"QUOCIENTE":"SOBRAS"} · ${pos.get(c)+1}º em votos</span></span></div>
+      <div class="n"><b>${esc(c.nm)}</b>${ef?`<span class="tg">${selo(ef,el?.vg?.get(String(c.n)),el?.vagas)}</span>`:""}<span>${esc(siglaDe(c))} · ${esc(c.n)} · <span class="fase">${x.fase==="QP"?"QUOCIENTE":"SOBRAS"} · ${pos.get(c)+1}º em votos</span></span></div>
       <div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div></div>`}).join("");
   // Candidato acompanhado fora da lista
   const tc=ordena(j).find(c=>String(c.n)===t.n);
@@ -495,7 +498,7 @@ function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,
       :`<div class="v num">${ceTxt}${esc(c.pvap||"0,00")}%</div>`;
     return `<div class="row${lead}${tc}${ef?(ef.startsWith("t2")?" t2row":ef==="vaga"?" vagarow":" won"):""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
       <span class="p">${i+1}º</span><div class="av">${av(foto(e,uf,c),c.nm)}</div>
-      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef,el?.vg?.get(String(c.n)),el?.vagas)+" ":""}${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
+      <div class="n"><b>${esc(c.nm)}</b>${ef?`<span class="tg">${selo(ef,el?.vg?.get(String(c.n)),el?.vagas)}</span>`:""}<span>${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
   }).join("");
 }
 
