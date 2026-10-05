@@ -386,11 +386,14 @@ function eleitos(j,tipo,vagas){
 function naVaga(j,vagas,el){
   const d=distribuir(j,vagas);if(!d)return el;
   for(const x of d.cad)if(!el.has(String(x.c.n)))el.set(String(x.c.n),"vaga");
+  // Número da vaga: ordem por votos entre os que ocupam cadeiras (a última vaga é a mais ameaçada)
+  el.vg=new Map(d.cad.slice().sort((a,b)=>num(b.c.vap)-num(a.c.vap)).map((x,i)=>[String(x.c.n),i+1]));
+  el.vagas=vagas;
   return el;
 }
-const selo=f=>f==="vaga"?`<span class="eleito vaga" title="Ocupa uma vaga pela contagem atual; ainda pode mudar">NA VAGA</span>`:f==="t2"||f==="t2TSE"
+const selo=(f,vg,tot)=>f==="vaga"?`<span class="eleito vaga" title="Ocupa uma vaga pela contagem atual; ainda pode mudar">NA VAGA${vg?` ${vg}/${tot}`:""}</span>`:f==="t2"||f==="t2TSE"
   ?`<span class="eleito t2" title="${f==="t2TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">2º TURNO${f==="t2"?"*":""}</span>`
-  :`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}</span>`;
+  :`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}${vg?` · VAGA ${vg}/${tot}`:""}</span>`;
 
 // ===== Projeção proporcional (estimativa) =====
 // Distribuição oficial das cadeiras (Código Eleitoral arts. 106–109, Lei 14.211/2021 e STF ADI 7228):
@@ -461,7 +464,7 @@ function renderCadeiras(){
   $("cad-lista").innerHTML=d.cad.slice().sort((a,b)=>num(b.c.vap)-num(a.c.vap)).map((x,i)=>{
     const c=x.c,ef=el.get(String(c.n)),tc=String(c.n)===t.n?" "+t.cls:"";
     return`<div class="row sq${ef==="vaga"?" vagarow":ef?" won":""}${tc}"><span class="p">${i+1}</span><div class="av">${av(foto(E_EST,"ce",c),c.nm)}</div>
-      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))} · ${esc(c.n)} · <span class="fase">${x.fase==="QP"?"QUOCIENTE":"SOBRAS"} · ${pos.get(c)+1}º em votos</span></span></div>
+      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef,el?.vg?.get(String(c.n)),el?.vagas)+" ":""}${esc(siglaDe(c))} · ${esc(c.n)} · <span class="fase">${x.fase==="QP"?"QUOCIENTE":"SOBRAS"} · ${pos.get(c)+1}º em votos</span></span></div>
       <div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div></div>`}).join("");
   // Candidato acompanhado fora da lista
   const tc=ordena(j).find(c=>String(c.n)===t.n);
@@ -492,7 +495,7 @@ function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,
       :`<div class="v num">${ceTxt}${esc(c.pvap||"0,00")}%</div>`;
     return `<div class="row${lead}${tc}${ef?(ef.startsWith("t2")?" t2row":ef==="vaga"?" vagarow":" won"):""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
       <span class="p">${i+1}º</span><div class="av">${av(foto(e,uf,c),c.nm)}</div>
-      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
+      <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef,el?.vg?.get(String(c.n)),el?.vagas)+" ":""}${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
   }).join("");
 }
 
@@ -535,7 +538,8 @@ function renderProp(cargo,j,id,apId){
     else if(p)h+=p.dentro
       ?`<div class="proj ok">📈 Projeção: DENTRO<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"}${p.folga>0?` · folga de ${br(p.folga)} votos sobre o 1º de fora do partido`:""}</small></div>`
       :`<div class="proj">📈 Projeção: FORA · faltam ~${br(p.faltam)} votos até o fim<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"} · agora: fora</small></div>`;
-    const st=ganhou(c.n)||oficial(c)?'<span class="st ok">ELEITO</span>':norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
+    const vg=el.vg?.get(String(c.n)),vt=`${vg}/${el.vagas}`;
+    const st=ganhou(c.n)||oficial(c)?`<span class="st ok">ELEITO${vg?" · VAGA "+vt:""}</span>`:el.get(String(c.n))==="vaga"?`<span class="st" style="background:var(--orange)">NA VAGA ${vt}</span>`:norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
     hl=`<div class="hl"><div class="ph">${av(foto(E_EST,"ce",c),c.nm)}</div><div class="info">
       <div class="lbl">${t.lbl}</div><div class="nm">${t.html}</div>
       <div class="tag"><span class="badge ${t.badge} num">${esc(c.n||t.n)}</span><span>${t.slogan}</span></div>
