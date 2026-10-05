@@ -103,6 +103,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .eleito{display:inline-block;font:900 10px var(--f);letter-spacing:.06em;color:#052e16;background:#4ade80;border-radius:5px;padding:1px 5px;vertical-align:1px}
 .row.won{border-color:#4ade80}
 .row.t2row{border-color:var(--yellow)}
+.eleito.vaga{background:var(--orange);color:#fff}
+.row.vagarow{border-color:var(--orange)}
 .eleito.t2{background:var(--yellow);color:#2a1a00}
 .turno{font:800 13px var(--f);padding:8px 10px;border-radius:10px;background:rgba(250,204,21,.14);color:var(--yellow)}
 .turno.ok{background:rgba(74,222,128,.14);color:#4ade80}
@@ -171,7 +173,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     <div id="cad-part"></div>
     <div class="sh"><h2 style="font-size:14px">Quem ocupa as vagas agora</h2></div>
     <div class="list" id="cad-lista"></div>
-    <div class="msg">Distribuição pela regra oficial com os votos apurados até agora: quociente partidário, depois sobras pela maior média (partido com 80% do quociente e candidato com 20%). <b>✓ ELEITO</b> = garantido; os demais são provisórios e podem mudar.</div>
+    <div class="msg">Distribuição pela regra oficial com os votos apurados até agora: quociente partidário, depois sobras pela maior média (partido com 80% do quociente e candidato com 20%). <b>✓ ELEITO</b> = garantido · <b>NA VAGA</b> = ocupa a cadeira pela contagem atual, ainda pode mudar.</div>
   </section>
 
   <section class="sec" id="municipios"><div class="sh"><h2>Votos por município</h2><span class="ap num" id="ap-mun"></span></div>
@@ -182,7 +184,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     <div class="list" id="l-mun"></div>
   </section>
 
-  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa. ✓ ELEITO* / 2º TURNO* = garantido matematicamente (mesmo que todos os votos restantes fossem para os adversários).</span></div>
+  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa. ✓ ELEITO* / 2º TURNO* = garantido matematicamente · NA VAGA = ocuparia a cadeira pela contagem atual, ainda pode mudar (mesmo que todos os votos restantes fossem para os adversários).</span></div>
 </div>
 
 <script>
@@ -380,7 +382,13 @@ function eleitos(j,tipo,vagas){
   }
   return out;
 }
-const selo=f=>f==="t2"||f==="t2TSE"
+// Ocupantes provisórios pela distribuição atual (sem garantia) recebem a etiqueta NA VAGA
+function naVaga(j,vagas,el){
+  const d=distribuir(j,vagas);if(!d)return el;
+  for(const x of d.cad)if(!el.has(String(x.c.n)))el.set(String(x.c.n),"vaga");
+  return el;
+}
+const selo=f=>f==="vaga"?`<span class="eleito vaga" title="Ocupa uma vaga pela contagem atual; ainda pode mudar">NA VAGA</span>`:f==="t2"||f==="t2TSE"
   ?`<span class="eleito t2" title="${f==="t2TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">2º TURNO${f==="t2"?"*":""}</span>`
   :`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}</span>`;
 
@@ -441,7 +449,7 @@ let CADC=6;
 function renderCadeiras(){
   const j=D.arq?.[CADC===6?"fed":"est"];
   if(!j){$("cad-lista").innerHTML='<div class="msg">Carregando…</div>';return}
-  const vagas=j.nv||VAGAS[CADC],d=distribuir(j,vagas),el=eleitos(j,"prop",vagas),t=TRACK[CADC];
+  const vagas=j.nv||VAGAS[CADC],d=distribuir(j,vagas),el=naVaga(j,vagas,eleitos(j,"prop",vagas)),t=TRACK[CADC];
   if(!d){$("cad-lista").innerHTML='<div class="msg">Aguardando votos válidos do TSE…</div>';return}
   $("ap-cad").textContent=`${br(pstOf(j),2)}% apurado`;
   $("cad-qe").innerHTML=`Quociente eleitoral agora: <b>${br(d.qe)}</b> votos · 10% = ${br(d.qe*0.1)} · 20% = ${br(d.qe*0.2)} · ${br(d.vv)} válidos ÷ ${vagas} vagas`;
@@ -452,7 +460,7 @@ function renderCadeiras(){
   const pos=new Map(ordena(j).map((c,i)=>[c,i]));
   $("cad-lista").innerHTML=d.cad.slice().sort((a,b)=>num(b.c.vap)-num(a.c.vap)).map((x,i)=>{
     const c=x.c,ef=el.get(String(c.n)),tc=String(c.n)===t.n?" "+t.cls:"";
-    return`<div class="row sq${ef?" won":""}${tc}"><span class="p">${i+1}</span><div class="av">${av(foto(E_EST,"ce",c),c.nm)}</div>
+    return`<div class="row sq${ef==="vaga"?" vagarow":ef?" won":""}${tc}"><span class="p">${i+1}</span><div class="av">${av(foto(E_EST,"ce",c),c.nm)}</div>
       <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))} · ${esc(c.n)} · <span class="fase">${x.fase==="QP"?"QUOCIENTE":"SOBRAS"} · ${pos.get(c)+1}º em votos</span></span></div>
       <div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div></div>`}).join("");
   // Candidato acompanhado fora da lista
@@ -482,7 +490,7 @@ function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,
     const right=show==="votos"
       ?`<div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div>`
       :`<div class="v num">${ceTxt}${esc(c.pvap||"0,00")}%</div>`;
-    return `<div class="row${lead}${tc}${ef?(ef.startsWith("t2")?" t2row":" won"):""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
+    return `<div class="row${lead}${tc}${ef?(ef.startsWith("t2")?" t2row":ef==="vaga"?" vagarow":" won"):""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
       <span class="p">${i+1}º</span><div class="av">${av(foto(e,uf,c),c.nm)}</div>
       <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
   }).join("");
@@ -508,12 +516,14 @@ function renderProp(cargo,j,id,apId){
   $(apId).textContent=`${br(pstOf(j),2)}% apurado`;
   const i=lista.findIndex(c=>String(c.n)===t.n||norm(c.nm).includes(t.nome));
   const ver=VER[cargo],el=eleitos(j,"prop",j.nv||VAGAS[cargo]);
+  const nEl=el.size,ganhou=n=>{const f=el.get(String(n));return f==="TSE"||f==="calc"};
+  naVaga(j,j.nv||VAGAS[cargo],el);
   const posDe=c=>lista.indexOf(c);
   let h=linhas(lista,{e:E_EST,uf:"ce",vagas:1,max:ver,show:"votos",cls:"sq",track:t,el,pos:posDe});
   // Eleitos sempre aparecem, mesmo abaixo da parte visível da lista
   const extras=lista.slice(ver).filter(c=>el.has(String(c.n)));
-  if(extras.length)h+=`<div class="gap"></div><div class="msg">Eleitos fora da lista visível</div>`+linhas(extras,{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,el,pos:posDe});
-  if(el.size)$(apId).textContent+=` · ${el.size} eleito${el.size>1?"s":""} de ${j.nv||VAGAS[cargo]}`;
+  if(extras.length)h+=`<div class="gap"></div><div class="msg">Eleitos e na vaga fora da lista visível</div>`+linhas(extras,{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,el,pos:posDe});
+  if(nEl)$(apId).textContent+=` · ${nEl} eleito${nEl>1?"s":""} de ${j.nv||VAGAS[cargo]}`;
   // "Ver mais" logo após o último colocado visível
   const resta=lista.length-ver;
   if(resta>0||ver>7)h+=`<div class="tools">${resta>0?`<button type="button" class="more" data-ver="${cargo}" data-d="20">Ver mais ${Math.min(20,resta)} de ${resta}</button>`:""}${ver>7?`<button type="button" class="more" data-ver="${cargo}" data-d="0">Ver menos</button>`:""}</div>`;
@@ -521,11 +531,11 @@ function renderProp(cargo,j,id,apId){
   if(i>=0){
     const c=lista[i],p=projecao(j,c,j.nv||VAGAS[cargo]);
     if(i>=ver&&!el.has(String(c.n)))h+=`<div class="gap"></div>`+linhas([c],{e:E_EST,uf:"ce",vagas:0,show:"votos",cls:"sq",track:t,start:i,el});
-    if(el.has(String(c.n)))h+=`<div class="proj ok">✓ ELEITO${el.get(String(c.n))==="TSE"?" · declarado pelo TSE":" · garantido matematicamente"}</div>`;
+    if(ganhou(c.n))h+=`<div class="proj ok">✓ ELEITO${el.get(String(c.n))==="TSE"?" · declarado pelo TSE":" · garantido matematicamente"}</div>`;
     else if(p)h+=p.dentro
       ?`<div class="proj ok">📈 Projeção: DENTRO<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"}${p.folga>0?` · folga de ${br(p.folga)} votos sobre o 1º de fora do partido`:""}</small></div>`
       :`<div class="proj">📈 Projeção: FORA · faltam ~${br(p.faltam)} votos até o fim<small>${esc(p.grupo)} faria ${p.cad} cadeira${p.cad==1?"":"s"} · agora: fora</small></div>`;
-    const st=el.has(String(c.n))||oficial(c)?'<span class="st ok">ELEITO</span>':norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
+    const st=ganhou(c.n)||oficial(c)?'<span class="st ok">ELEITO</span>':norm(c.st).includes("NAO ELEITO")?'<span class="st no">NÃO ELEITO</span>':norm(c.st).includes("SUPLENTE")?'<span class="st">SUPLENTE</span>':'<span class="st">APURANDO</span>';
     hl=`<div class="hl"><div class="ph">${av(foto(E_EST,"ce",c),c.nm)}</div><div class="info">
       <div class="lbl">${t.lbl}</div><div class="nm">${t.html}</div>
       <div class="tag"><span class="badge ${t.badge} num">${esc(c.n||t.n)}</span><span>${t.slogan}</span></div>
