@@ -45,6 +45,9 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .vs .sg{font:700 12px var(--f);color:var(--muted)}
 .vs .x{font:900 14px var(--f);color:var(--muted)}
 .A{color:var(--a)} .B{color:var(--b)}
+.turno{font:800 13px var(--f);padding:10px 12px;border-radius:12px;background:var(--card2);color:var(--muted)}
+.turno.t2{background:rgba(250,204,21,.14);color:var(--yellow)}
+.turno.ok{background:rgba(74,222,128,.14);color:#4ade80}
 
 .sec{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;display:grid;gap:10px}
 .sh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -98,6 +101,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
   </header>
 
   <div class="vs" id="vs"><div class="c"><div class="msg">Carregando…</div></div></div>
+  <div class="turno" id="turno" hidden></div>
 
   <section class="sec">
     <div class="sh"><h2>Mapa por estado</h2><span class="ap num" id="cnt"></span></div>
@@ -176,8 +180,9 @@ function achata(j){
   if(Array.isArray(j.cand))return j;
   const cand=[];
   for(const a of ((j.carg||[])[0]||{}).agr||[])for(const p of a.par||[])for(const c of p.cand||[])
-    cand.push({n:String(c.n),nm:c.nmu||c.nm,sg:p.sg||p.nm||"",vap:num(c.vap),pvap:num(c.pvap)});
-  return{cand,pst:num(j.s?.pst??j.pst),st:num(j.s?.st),ts:num(j.s?.ts),hg:j.hg,tv:num(j.v?.tv??j.c?.c??j.e?.c),vv:num(j.v?.vv),el:num(j.e?.te)};
+    cand.push({n:String(c.n),nm:c.nmu||c.nm,sg:p.sg||p.nm||"",vap:num(c.vap),pvap:num(c.pvap),e:c.e,sit:c.st||""});
+  return{cand,pst:num(j.s?.pst??j.pst),st:num(j.s?.st),ts:num(j.s?.ts),hg:j.hg,tv:num(j.v?.tv??j.c?.c??j.e?.c),vv:num(j.v?.vv),el:num(j.e?.te),
+    esnt:num(j.e?.esnt),est:num(j.e?.est),sj:num(j.v?.van)+num(j.v?.vansj)};
 }
 const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}};
 const LSset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
@@ -185,6 +190,24 @@ const LSset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 // ===== Estado =====
 const D=LS("pan-v1")||{uf:{},seen:{},br:null};
 let AB={},sel=null,t0=0,nTick=0;
+// Regra de decisão (mesma da página do Ceará): eleito no 1º turno com mais de 50% dos válidos
+// mesmo no pior caso; 2º turno garantido quando ninguém alcança 50% nem com todos os votos restantes.
+function situacao(d){
+  if(!d||!d.vv)return null;
+  const l=d.cand.slice().sort((a,b)=>b.vap-a.vap),up=x=>String(x||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+  const of=l.find(c=>c.e==="s"||up(c.sit).startsWith("ELEITO"));
+  if(of)return{t:"ok",txt:`✓ ${of.nm} eleito no 1º turno (declarado pelo TSE)`};
+  if(l.some(c=>up(c.sit).includes("TURNO")))return{t:"t2",txt:"🔁 Haverá 2º turno em 25/10 (declarado pelo TSE)"};
+  const R0=d.pst>=100?0:Math.max(d.esnt,d.el&&d.est?d.el-d.est:0);
+  if(d.pst<100&&!R0)return null;
+  const R=R0+d.sj,vv=d.vv;
+  if(l[0]&&2*l[0].vap>vv+R)return{t:"ok",txt:`✓ ${l[0].nm} eleito no 1º turno (garantido matematicamente)`};
+  if(l.every(x=>2*(x.vap+R)<=vv+R)){
+    const fin=l.filter(x=>{const d2=l.filter(o=>o!==x).map(o=>Math.max(0,x.vap-o.vap)).sort((a,b)=>a-b);return d2.length<2||d2[0]+d2[1]>R});
+    return{t:"t2",txt:`🔁 Haverá 2º turno em 25/10 (garantido matematicamente)${fin.length?" · finalista"+(fin.length>1?"s":"")+": "+fin.map(x=>x.nm).join(" e "):""}`};
+  }
+  return{t:"",txt:"Ainda pode ser decidido no 1º turno: vence quem passar de 50% dos votos válidos"};
+}
 function topo(){                                   // os 2 primeiros no Brasil
   const c=(D.br?.cand||[]).slice().sort((a,b)=>b.vap-a.vap);
   return[c[0],c[1]];
@@ -225,6 +248,7 @@ function desenha(){
       <div class="c"><div class="nm B">${esc(B.nm)}</div><div class="pc num B">${br(B.pvap,2)}%</div><div class="sg">2º · ${esc(B.sg)} · ${br(B.vap)} votos</div></div>`;
     $("leg").innerHTML=`<span><i style="background:var(--a)"></i>${esc(A.nm)} na frente</span><span><i style="background:var(--b)"></i>${esc(B.nm)} na frente</span><span><i style="background:var(--sem)"></i>sem apuração</span><span>cor mais forte = vantagem maior · toque num estado</span>`;
   }
+  const si=situacao(D.br);$("turno").hidden=!si;if(si){$("turno").className="turno "+si.t;$("turno").textContent=si.txt}
   let com=0;
   for(const g of GEO.s){
     const p=par(g.id);

@@ -102,6 +102,11 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
 .refresh:disabled{opacity:.5}
 .eleito{display:inline-block;font:900 10px var(--f);letter-spacing:.06em;color:#052e16;background:#4ade80;border-radius:5px;padding:1px 5px;vertical-align:1px}
 .row.won{border-color:#4ade80}
+.row.t2row{border-color:var(--yellow)}
+.eleito.t2{background:var(--yellow);color:#2a1a00}
+.turno{font:800 13px var(--f);padding:8px 10px;border-radius:10px;background:rgba(250,204,21,.14);color:var(--yellow)}
+.turno.ok{background:rgba(74,222,128,.14);color:#4ade80}
+.turno.muted{background:var(--card2);color:var(--muted);font-weight:600}
 /* Municípios */
 .seg{display:flex;gap:6px;flex-wrap:wrap}
 .seg button{flex:1 1 140px;font:800 13px var(--f);padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--fg);text-transform:uppercase}
@@ -160,7 +165,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:500 15px/1.35 var(--f);
     <div class="list" id="l-mun"></div>
   </section>
 
-  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa. ✓ ELEITO* = garantido matematicamente (mesmo que todos os votos restantes fossem para os adversários).</span></div>
+  <div class="foot"><span id="pausa" hidden></span><span id="err"></span><span>Dados: <a href="https://resultados.tse.jus.br" target="_blank" rel="noopener">resultados.tse.jus.br</a> · Projeção de cadeiras é estimativa. ✓ ELEITO* / 2º TURNO* = garantido matematicamente (mesmo que todos os votos restantes fossem para os adversários).</span></div>
 </div>
 
 <script>
@@ -309,12 +314,27 @@ function eleitos(j,tipo,vagas){
   const lista=ordena(j),out=new Map(),R0=restantes(j),vv=num(j.vv);
   const R=R0+num(j.sj);                             // pior caso: anulados sub judice também viram válidos de adversários
   for(const c of lista)if(oficial(c))out.set(String(c.n),"TSE");
+  // 2º turno declarado pelo TSE (situação "2º turno")
+  if(tipo==="maj")for(const c of lista)if(!out.has(String(c.n))&&norm(c.st).includes("TURNO"))out.set(String(c.n),"t2TSE");
   // Só calcula com válidos oficiais e eleitorado restante conhecidos (nunca com estimativa)
   if(!isFinite(R)||!vv||!vagas)return out;
   const marca=c=>{if(!out.has(String(c.n)))out.set(String(c.n),"calc")};
   if(tipo==="maj"){
     // Maioria absoluta dos válidos mesmo que todos os R votos restantes sejam válidos e vão para outros
     const c=lista[0];if(c&&2*num(c.vap)>vv+R)marca(c);
+    // Regra do 2º turno (art. 77 da Constituição): sem maioria absoluta, os 2 mais votados disputam.
+    // "Haverá 2º turno" é garantido quando NINGUÉM consegue maioria nem recebendo todos os R votos:
+    //   para todo x: 2·(v_x + R) ≤ válidos + R.
+    // Um candidato tem vaga garantida no 2º turno quando, além disso, os R votos não bastam
+    // para levar 2 adversários a empatar ou passar dele (empate conta como derrota).
+    else if(!out.size&&lista.length>=2){
+      const haverá=lista.every(x=>2*(num(x.vap)+R)<=vv+R);
+      out.turno2=haverá;
+      if(haverá)for(const x of lista){
+        if(out.has(String(x.n)))continue;
+        if(custoK(num(x.vap),lista.filter(o=>o!==x),2)>R)out.set(String(x.n),"t2");
+      }
+    }
   }else if(tipo==="plu"){
     // Perde a vaga se os R votos bastarem para levar "vagas" adversários a empatar/passar
     for(const c of lista){const adv=lista.filter(o=>o!==c);if(custoK(num(c.vap),adv,vagas)>R)marca(c)}
@@ -343,7 +363,9 @@ function eleitos(j,tipo,vagas){
   }
   return out;
 }
-const selo=f=>`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}</span>`;
+const selo=f=>f==="t2"||f==="t2TSE"
+  ?`<span class="eleito t2" title="${f==="t2TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">2º TURNO${f==="t2"?"*":""}</span>`
+  :`<span class="eleito" title="${f==="TSE"?"Declarado pelo TSE":"Garantido matematicamente"}">✓ ELEITO${f==="calc"?"*":""}</span>`;
 
 // ===== Projeção proporcional (estimativa) =====
 function projecao(j,c,vagas){
@@ -394,7 +416,7 @@ function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,
     const right=show==="votos"
       ?`<div class="v num">${br(num(c.vap))}<small>${esc(c.pvap||"0,00")}%</small></div>`
       :`<div class="v num">${ceTxt}${esc(c.pvap||"0,00")}%</div>`;
-    return `<div class="row${lead}${tc}${ef?" won":""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
+    return `<div class="row${lead}${tc}${ef?(ef.startsWith("t2")?" t2row":" won"):""} ${cls}"><i class="fill" style="width:${Math.min(100,pct*(show==="votos"?5:1))}%"></i>
       <span class="p">${i+1}º</span><div class="av">${av(foto(e,uf,c),c.nm)}</div>
       <div class="n"><b>${esc(c.nm)}</b><span>${ef?selo(ef)+" ":""}${esc(siglaDe(c))}${show==="votos"&&c.n?` · ${esc(c.n)}`:""}</span></div>${right}</div>`;
   }).join("");
@@ -403,7 +425,16 @@ function linhas(lista,{e,uf,cls="",vagas=1,ce=null,max=99,show="pct",track=null,
 function renderMaj(id,apId,j,opt){
   $(apId).textContent=`${br(pstOf(j),2)}% apurado`;
   const el=eleitos(j,opt.vagas>1?"plu":"maj",opt.vagas||1);
-  $(id).innerHTML=linhas(ordena(j),{...opt,el})||'<div class="msg">Sem candidatos ainda.</div>';
+  let aviso="";
+  if(!(opt.vagas>1)){
+    const vals=[...el.values()];
+    if(vals.includes("TSE")||vals.includes("calc"))aviso=`<div class="turno ok">✓ Decidido no 1º turno</div>`;
+    else if(vals.includes("t2TSE")||el.turno2){
+      const n=vals.filter(v=>v==="t2"||v==="t2TSE").length;
+      aviso=`<div class="turno">🔁 Haverá 2º turno em 25/10 · ${n===2?"os 2 finalistas já estão definidos":n===1?"1 finalista já garantido, a outra vaga ainda está em disputa":"finalistas ainda em disputa"}</div>`;
+    }else if(pstOf(j)>0)aviso=`<div class="turno muted">Ainda pode ser decidido no 1º turno (quem passar de 50% dos válidos vence)</div>`;
+  }
+  $(id).innerHTML=aviso+(linhas(ordena(j),{...opt,el})||'<div class="msg">Sem candidatos ainda.</div>');
 }
 
 function renderProp(cargo,j,id,apId){
